@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-title" content="Body Tracker"/>
+  <title>Body Tracker</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{background:#060608;color:#e8e8f0;font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;}
+    input::-webkit-inner-spin-button,input::-webkit-outer-spin-button{opacity:1;}
+    input[type=date]{color-scheme:dark;}
+    select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23555'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px!important;}
+    ::-webkit-scrollbar{width:0;}
+    textarea{resize:none;font-family:inherit;}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>
+"use strict";
+var h=React.createElement,useState=React.useState;
+
+// ── Profil utilisateur (éditable, persisté) ───────────────────────────────
+var PROFIL_DEFAUT={sexe:"homme",age:35,tailleCm:175,trt:false};
+var PROFIL=(function(){
+  try{var v=localStorage.getItem("tp_profil");return v?Object.assign({},PROFIL_DEFAUT,JSON.parse(v)):Object.assign({},PROFIL_DEFAUT);}
+  catch(e){return Object.assign({},PROFIL_DEFAUT);}
+})();
+function saveProfil(p){PROFIL=Object.assign({},PROFIL,p);try{localStorage.setItem("tp_profil",JSON.stringify(PROFIL));}catch(e){}}
+function sexeLabel(){return PROFIL.sexe==="femme"?"femme":"homme";}
+function ageTxt(){return (PROFIL.age||35)+" ans";}
+function trtSuffix(oui,non){return PROFIL.trt?oui:(non===undefined?"":non);}
+
+// ── Palette ──────────────────────────────────────────────────────────────
+var G={
+  bg:"#05070d",bg2:"#0b0f1a",bg3:"#111828",border:"#1c2740",
+  gold:"#2f7cf6",goldDim:"#1d4ea3",red:"#e05555",green:"#4ecb71",
+  orange:"#e07a30",blue:"#2f7cf6",purple:"#5b8dee",cyan:"#3fc8ff",
+  text:"#e8ecf6",muted:"#5b6785"
+};
+
+var OBJECTIFS=[
+  {id:"seche",  label:"SÈCHE",  color:G.blue, icon:"↓",desc:"Perte de gras, préservation musculaire max"},
+  {id:"recompo",label:"RECOMPO",color:G.gold, icon:"⟳",desc:"Recomposition — muscle + perte gras"},
+  {id:"masse",  label:"MASSE",  color:G.green,icon:"↑",desc:"Lean bulk — prise de muscle propre"}
+];
+
+// Nettoyage au démarrage — efface les clés corrompues des versions précédentes
+(function(){
+  try{
+    var obj=localStorage.getItem("bt_objectif");
+    if(obj&&["seche","recompo","masse"].indexOf(JSON.parse(obj))<0){
+      localStorage.removeItem("bt_objectif");
+    }
+  }catch(e){localStorage.removeItem("bt_objectif");}
+})();
+
+// Mensurations — cou + taille ventre obligatoires pour Navy BF
+var MESURES=[
+  {key:"poids",   label:"POIDS",   unit:"kg", hint:""},
+  {key:"cou",     label:"COU",     unit:"cm", hint:"Sous le larynx, perpendiculaire"},
+  {key:"taille",  label:"TAILLE",  unit:"cm", hint:"Nombril, expiration normale"},
+  {key:"hanches", label:"HANCHES", unit:"cm", hint:"Point le plus large (Navy BF femme)"},
+  {key:"bras",    label:"BRAS",    unit:"cm", hint:"Bras détendu, mi-hauteur"},
+  {key:"cuisses", label:"CUISSES", unit:"cm", hint:"Mi-cuisse debout"},
+  {key:"poitrine",label:"POITRINE",unit:"cm", hint:"Sous les aisselles"}
+];
+
+// Catégories BF homme bodybuilding
+var BF_CATS=[
+  {max:6,  label:"COMPÉTITION",   color:"#00e5ff"},
+  {max:10, label:"ATHLÈTE ÉLITE", color:G.cyan},
+  {max:14, label:"ATHLÈTE",       color:G.green},
+  {max:18, label:"FITNESS",       color:"#a8e063"},
+  {max:23, label:"ACCEPTABLE",    color:G.gold},
+  {max:28, label:"SURPOIDS",      color:G.orange},
+  {max:100,label:"OBÉSITÉ",       color:G.red}
+];
+
+// Cibles BF selon objectif et profil
+function bfTarget(obj){
+  if(obj==="seche")  return {min:8, max:12,ideal:10,label:"8-12%"};
+  if(obj==="masse")  return {min:14,max:18,ideal:16,label:"14-18%"};
+  return                    {min:10,max:15,ideal:12,label:"10-15%"};
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+function lsGet(k){try{var v=localStorage.getItem(k);return v?JSON.parse(v):null;}catch(e){return null;}}
+function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
+function pSave(id,t,d){
+  try{
+    localStorage.setItem("btp_"+id+"_"+t,d);
+  }catch(e){
+    // localStorage plein — supprimer les vieilles photos pour faire de la place
+    var keys=[];
+    for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);if(k&&k.indexOf("btp_")===0)keys.push(k);}
+    if(keys.length>0){localStorage.removeItem(keys[0]);try{localStorage.setItem("btp_"+id+"_"+t,d);}catch(e2){}}
+  }
+}
+function pLoad(id,t){try{return localStorage.getItem("btp_"+id+"_"+t)||null;}catch(e){return null;}}
+function todayStr(){return new Date().toISOString().split("T")[0];}
+function fmtD(d){if(!d)return"";var p=d.split("-");return p[2]+"/"+p[1]+"/"+p[0];}
+function fmtS(d){if(!d)return"";var p=d.split("-");var mo=["Jan","Fév","Mar","Avr","Mai","Jun","Jul","Aoû","Sep","Oct","Nov","Déc"];return mo[parseInt(p[1])-1]+" "+p[0].slice(2);}
+function rd(v,n){var f=Math.pow(10,n===undefined?1:n);return Math.round(v*f)/f;}
+
+// ── Formule Navy BF (homme + femme) ───────────────────────────────────────
+// Homme: %BF = 495/(1.0324 - 0.19077×log10(taille-cou) + 0.15456×log10(hauteur)) - 450
+// Femme: %BF = 495/(1.29579 - 0.35004×log10(taille+hanches-cou) + 0.22100×log10(hauteur)) - 450
+function navyBF(ventreCm,couCm,hauteurCm,hanchesCm){
+  if(!ventreCm||!couCm||!hauteurCm)return null;
+  var bf;
+  if(PROFIL.sexe==="femme"){
+    if(!hanchesCm)return null;
+    var diffF=ventreCm+hanchesCm-couCm;
+    if(diffF<=0)return null;
+    bf=495/(1.29579-0.35004*Math.log10(diffF)+0.22100*Math.log10(hauteurCm))-450;
+  }else{
+    var diff=ventreCm-couCm;
+    if(diff<=0)return null;
+    bf=495/(1.0324-0.19077*Math.log10(diff)+0.15456*Math.log10(hauteurCm))-450;
+  }
+  return rd(Math.max(3,Math.min(55,bf)));
+}
+
+function getBFCat(bf){
+  for(var i=0;i<BF_CATS.length;i++){if(bf<=BF_CATS[i].max)return BF_CATS[i];}
+  return BF_CATS[BF_CATS.length-1];
+}
+
+// ── Analyse bodybuilding complète ─────────────────────────────────────────
+// Calibré selon le profil utilisateur (sexe, âge, taille, TRT)
+// Si TRT actif : récupération accrue et préservation musculaire prises en compte
+function analyzeBB(bilans,obj){
+  if(!bilans||bilans.length<2)return[];
+  var s=bilans.slice().sort(function(a,b){return a.date.localeCompare(b.date);});
+  var last=s[s.length-1],prev=s[s.length-2],first=s[0];
+  var days=Math.max(1,Math.round((new Date(last.date)-new Date(prev.date))/86400000));
+  var wf=7/days; // normalisation hebdomadaire
+  var alerts=[];
+
+  var lastBF=last.bf||null;
+  var prevBF=prev.bf||null;
+  var tgt=bfTarget(obj);
+
+  // ─── BODY FAT ────────────────────────────────────────────────────────────
+  if(lastBF!==null){
+    var bfCat=getBFCat(lastBF);
+
+    // BF hors cible
+    if(obj==="seche"&&lastBF>18){
+      alerts.push({type:"danger",color:G.red,icon:"⚠",urgency:"PRIORITÉ",
+        title:"BF trop élevé pour une sèche efficace",
+        msg:"À "+lastBF+"% tu es en zone "+bfCat.label+". Cible sèche : "+tgt.label+".",
+        actions:["Déficit 300-400 kcal/jour max"+trtSuffix(" (préserve le muscle sous TRT)",""),"Protéines : 2.2-2.5g/kg/jour obligatoire","Cardio LISS : 3×30min/semaine en plus de l'entraînement","Pas de cardio HIIT — trop catabolique passé 45 ans"]});
+    }
+    if(obj==="masse"&&lastBF>20){
+      alerts.push({type:"warn",color:G.orange,icon:"!",urgency:"AJUSTEMENT",
+        title:"BF trop élevé pour un lean bulk",
+        msg:"À "+lastBF+"% continue en recompo avant le bulk. Au-delà de 20% le surplus va en gras.",
+        actions:["Passe en RECOMPO jusqu'à 15-16% BF","Ensuite seulement : surplus de +200 kcal",trtSuffix("Le TRT te permettra de recomposer efficacement","La recomposition prend du temps, reste régulier")]});
+    }
+    if(lastBF>=tgt.min&&lastBF<=tgt.max){
+      alerts.push({type:"good",color:G.green,icon:"✓",urgency:"OPTIMAL",
+        title:"Body fat dans la cible "+obj,
+        msg:"À "+lastBF+"% tu es dans la zone idéale "+tgt.label+" pour ton objectif.",
+        actions:["Maintiens cette composition corporelle","Ajuste les calories si ça dérive de ±2%"]});
+    }
+
+    // Évolution BF
+    if(prevBF!==null){
+      var dbf=rd(lastBF-prevBF);
+      var dbfW=dbf*wf;
+      if(obj==="seche"){
+        if(dbfW<-1.5) alerts.push({type:"warn",color:G.orange,icon:"!",urgency:"ATTENTION",
+          title:"BF baisse trop vite",
+          msg:dbf+"% en "+days+"j. Risque de catabolisme musculaire.",
+          actions:["Remonte les calories de +150-200 kcal/jour","Augmente les protéines si <2.2g/kg","La récupération ne fait pas de miracles en déficit agressif"]});
+        else if(dbf<0) alerts.push({type:"good",color:G.cyan,icon:"✓",urgency:"PROGRESSION",
+          title:"BF en baisse contrôlée",
+          msg:Math.abs(dbf)+"% perdus. Rythme optimal pour préserver le muscle.",
+          actions:["Continue exactement comme ça","Vérifie que ta masse maigre reste stable"]});
+        else if(dbf>0.5) alerts.push({type:"danger",color:G.red,icon:"⚠",urgency:"ALERTE",
+          title:"BF en hausse en sèche",
+          msg:"+"+dbf+"% de graisse. Tu n'es pas en déficit suffisant.",
+          actions:["Réduis les glucides de 50g/jour","Ajoute 2 séances de cardio LISS","Vérifie les huiles, sauces et alcool"]});
+      }
+      if(obj==="masse"){
+        if(dbfW>1) alerts.push({type:"warn",color:G.orange,icon:"!",urgency:"AJUSTEMENT",
+          title:"BF monte trop vite en lean bulk",
+          msg:"+"+dbf+"% de graisse. Surplus trop important.",
+          actions:["Réduis le surplus à 150-200 kcal max","Le lean bulk idéal : +0.3% BF/semaine max","Coupe les glucides simples post-17h"]});
+      }
+    }
+  }
+
+  // ─── MASSE MAIGRE (indicateur clé bodybuilding) ──────────────────────────
+  if(last.mm&&prev.mm){
+    var dmm=rd(last.mm-prev.mm);
+    var dmmW=dmm*wf;
+    if(obj==="seche"||obj==="recompo"){
+      if(dmm<-0.5) alerts.push({type:"danger",color:G.red,icon:"⚠",urgency:"ALERTE MUSCLE",
+        title:"Perte de masse maigre détectée",
+        msg:dmm+"kg de muscle perdu. C'est un signal d'alarme à ne pas ignorer.",
+        actions:["Augmente les protéines à 2.5g/kg immédiatement","Réduis le déficit calorique de 150 kcal","Augmente le volume d'entraînement (séries de maintien)","Vérifie ton sommeil — la récupération est clé"]});
+      else if(dmm>0&&obj==="seche") alerts.push({type:"good",color:G.cyan,icon:"✓",urgency:"EXCELLENT",
+        title:"Recomposition en sèche — muscle préservé",
+        msg:"+"+dmm+"kg de masse maigre en sèche."+trtSuffix(" Le TRT fait son travail.",""),
+        actions:["Continue ce protocole","C'est rare de gagner du muscle en sèche — optimise la progression sur Tatanka Training"]});
+    }
+    if(obj==="masse"){
+      if(dmmW>1.5) alerts.push({type:"good",color:G.green,icon:"✓",urgency:"PROGRESSION",
+        title:"Prise de masse maigre optimale",
+        msg:"+"+dmm+"kg de muscle. Lean bulk efficace.",
+        actions:["Maintiens le surplus actuel","Augmente progressivement les charges sur Tatanka Training"]});
+      else if(dmm<0) alerts.push({type:"danger",color:G.red,icon:"⚠",urgency:"PROBLÈME",
+        title:"Pas de prise de masse maigre",
+        msg:dmm+"kg. Tu n'es pas en surplus ou ton programme est inadapté.",
+        actions:["Augmente les calories de +200 kcal/jour","Vérifie que tu progresses sur tes exercices composés","Dors 8h — la récupération hormonale est clé"]});
+    }
+  }
+
+  // ─── POIDS TOTAL ──────────────────────────────────────────────────────────
+  if(last.poids&&prev.poids){
+    var dp=rd(last.poids-prev.poids);
+    var dpW=dp*wf;
+    if(obj==="seche"){
+      if(dp>0.3) alerts.push({type:"warn",color:G.orange,icon:"!",urgency:"ATTENTION",
+        title:"Poids en hausse en sèche",
+        msg:"+"+dp+"kg. Vérifie si c'est de la rétention (sel, glycogène) ou du gras.",
+        actions:["Si le BF ne monte pas : probablement rétention — bois plus","Si le BF monte aussi : réduis les glucides raffinés","Mesure-toi toujours dans les mêmes conditions"]});
+      else if(dpW<-1.5) alerts.push({type:"warn",color:G.orange,icon:"!",urgency:"ATTENTION",
+        title:"Perte de poids trop rapide",
+        msg:Math.abs(dp)+"kg/semaine. Limite sèche intelligente : 0.5-0.75kg/semaine.",
+        actions:["Remonte les calories de +150 kcal","Une restriction trop sévère reste risquée","Protéines à 2.2g/kg minimum obligatoire"]});
+      else if(dp<=0) alerts.push({type:"good",color:G.green,icon:"✓",urgency:"OPTIMAL",
+        title:"Perte de poids contrôlée",
+        msg:Math.abs(dp)+"kg. Rythme parfait pour ton profil.",
+        actions:["Continue exactement ce protocole"]});
+    }
+    if(obj==="masse"){
+      if(dp<0) alerts.push({type:"danger",color:G.red,icon:"⚠",urgency:"ATTENTION",
+        title:"Poids en baisse en lean bulk",
+        msg:dp+"kg. Tu n'es pas en surplus calorique.",
+        actions:["Augmente les calories de +200-250 kcal/jour","Ajoute une collation : 40g protéines + 60g glucides","Le lean bulk propre : +0.3-0.5kg/semaine max"]});
+      else if(dpW>1.2) alerts.push({type:"warn",color:G.orange,icon:"!",urgency:"AJUSTEMENT",
+        title:"Prise de poids trop rapide",
+        msg:"+"+dp+"kg. Risque de prise de gras excessive.",
+        actions:["Réduis le surplus à 200 kcal max","Vérifie le BF — ne dépasse jamais 18% en masse","Lean bulk propre : la priorité passé 40 ans"]});
+      else if(dp>0) alerts.push({type:"good",color:G.green,icon:"✓",urgency:"OPTIMAL",
+        title:"Lean bulk contrôlé",
+        msg:"+"+dp+"kg. Rythme parfait.",
+        actions:["Continue ce protocole","Augmente les charges sur Tatanka Training chaque semaine"]});
+    }
+    if(obj==="recompo"&&Math.abs(dp)<0.4){
+      alerts.push({type:"info",color:G.blue,icon:"i",urgency:"INFO RECOMPO",
+        title:"Poids stable — recompo en cours",
+        msg:"Variation de "+dp+"kg. Normal : le gras et le muscle s'échangent.",
+        actions:["Le vrai indicateur : le BF et la masse maigre","Tes performances sur Tatanka Training sont le meilleur signal","La recompo reste le protocole le plus fiable sur la durée"]});
+    }
+  }
+
+  // ─── TOUR DE TAILLE ───────────────────────────────────────────────────────
+  if(last.taille&&prev.taille){
+    var dt=rd(last.taille-prev.taille);
+    var dtW=dt*wf;
+    if(dt>0.8) alerts.push({type:"danger",color:G.red,icon:"⚠",urgency:"ATTENTION",
+      title:"Tour de taille en hausse",
+      msg:"+"+dt+"cm. Accumulation de gras viscéral.",
+      actions:["Gras viscéral = ennemi n°1 pour la santé et l'équilibre hormonal","Réduis le sucre et l'alcool en priorité","Ajoute 20 min de marche rapide post-repas le soir"]});
+    else if(dtW<-1.5) alerts.push({type:"warn",color:G.orange,icon:"!",urgency:"AJUSTEMENT",
+      title:"Tour de taille baisse trop vite",
+      msg:dt+"cm/semaine. Déficit probablement trop agressif.",
+      actions:["Remonte les calories de +150 kcal","Attention à la masse maigre — vérifie la prochaine semaine"]});
+    else if(dt<-0.2) alerts.push({type:"good",color:G.green,icon:"✓",urgency:"PROGRESSION",
+      title:"Tour de taille en baisse",
+      msg:Math.abs(dt)+"cm. Gras viscéral qui part.",
+      actions:["Continue","Surveille que le BF baisse proportionnellement"]});
+  }
+
+  // ─── BRAS ─────────────────────────────────────────────────────────────────
+  if(last.bras&&prev.bras){
+    var db=rd(last.bras-prev.bras);
+    if(db>=0.3&&(obj==="masse"||obj==="recompo")) alerts.push({type:"good",color:G.green,icon:"✓",urgency:"PROGRESSION",
+      title:"Bras en développement",
+      msg:"+"+db+"cm. L'hypertrophie est visible.",
+      actions:["Continue le protocole bras actuel sur Tatanka Training","Reste régulier sur le volume — l'hypertrophie est progressive"]});
+    if(db<=-0.5&&obj!=="seche") alerts.push({type:"warn",color:G.orange,icon:"!",urgency:"ATTENTION",
+      title:"Bras en régression",
+      msg:db+"cm. Signal de catabolisme ou de sous-alimentation.",
+      actions:["Vérifie les protéines (2.2g/kg min)","Augmente le volume bras : +2 séries/semaine","Assure-toi de manger dans les 90 min post-entraînement"]});
+  }
+
+  // ─── ALERTE TRT SPÉCIFIQUE ────────────────────────────────────────────────
+  if(last.poids&&last.bf){
+    var mmkg=rd(last.poids*(1-last.bf/100));
+    // Masse maigre max estimée selon FFMI naturel (≈25) × taille², + bonus si TRT actif
+    var hM=(PROFIL.tailleCm||175)/100;
+    var mmMax=rd(25*hM*hM*(PROFIL.trt?1.1:1),0);
+    var mmPct=rd((mmkg/mmMax)*100,0);
+    if(mmPct>90) alerts.push({type:"info",color:G.purple,icon:"★",urgency:trtSuffix("POTENTIEL TRT","POTENTIEL"),
+      title:"Excellent niveau de masse maigre",
+      msg:mmkg+"kg de masse maigre ("+mmPct+"% du potentiel estimé pour ta taille"+trtSuffix(" sous TRT","")+").",
+      actions:["Tu approches ton potentiel génétique","Focus sur la force plutôt que le volume","Maintenir > progresser à ce stade"]});
+  }
+
+  // ─── RAPPEL BILAN EN RETARD ───────────────────────────────────────────────
+  var daysSince=Math.round((new Date(todayStr())-new Date(last.date))/86400000);
+  if(daysSince>10) alerts.push({type:"info",color:G.blue,icon:"📅",urgency:"RAPPEL",
+    title:"Bilan en retard de "+daysSince+" jours",
+    msg:"Dernier bilan : "+fmtD(last.date)+". Suivi hebdomadaire recommandé.",
+    actions:["Fais ton bilan cette semaine","Matin à jeun, après toilettes, avant de boire"]});
+
+  return alerts;
+}
+
+// ── Composants UI ────────────────────────────────────────────────────────
+function Card(props){
+  return h("div",{style:Object.assign({background:G.bg2,borderRadius:14,padding:"14px 15px",marginBottom:10,border:"1px solid "+G.border},props.style||{})},props.children);
+}
+function Lbl(props){
+  return h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.1em",marginBottom:6}},props.children);
+}
+function SBox(props){
+  var d=props.delta;
+  var dc=d===null||d===undefined?G.muted:d>0?G.green:d<0?G.red:G.muted;
+  var sign=d>0?"+":"";
+  return h("div",{style:{background:G.bg3,borderRadius:10,padding:"10px 12px",border:"1px solid "+G.border,textAlign:"center"}},
+    h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace",letterSpacing:"0.1em",marginBottom:4}},props.label),
+    h("div",{style:{fontSize:18,fontWeight:900,color:props.color||G.text}},props.value,h("span",{style:{fontSize:10,color:G.muted}},props.unit)),
+    d!==null&&d!==undefined?h("div",{style:{fontSize:10,color:dc,fontWeight:700,marginTop:2}},sign+d+props.unit):null
+  );
+}
+
+// ── Body Fat Gauge ────────────────────────────────────────────────────────
+function BFGauge(props){
+  var bf=props.bf,obj=props.obj;
+  if(!bf)return null;
+  var cat=getBFCat(bf);
+  var tgt=bfTarget(obj);
+  var pct=Math.min(100,Math.max(0,(bf/40)*100));
+  var tgtMinPct=(tgt.min/40)*100;
+  var tgtMaxPct=(tgt.max/40)*100;
+
+  // Masse grasse et maigre
+  var poids=props.poids;
+  var mg=poids?rd(poids*bf/100):null;
+  var mm=poids?rd(poids-mg):null;
+
+  return h(Card,{style:{background:cat.color+"0d",border:"1px solid "+cat.color+"33"}},
+    h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}},
+      h("div",null,
+        h(Lbl,null,"BODY FAT — MÉTHODE NAVY"),
+        h("div",{style:{fontSize:36,fontWeight:900,color:cat.color}},bf,h("span",{style:{fontSize:16,color:G.muted}},"%")),
+        h("div",{style:{fontSize:11,fontWeight:900,color:cat.color,fontFamily:"monospace",letterSpacing:"0.08em"}},cat.label)
+      ),
+      h("div",{style:{textAlign:"right"}},
+        h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",marginBottom:4}},"CIBLE "+props.objLabel),
+        h("div",{style:{fontSize:14,fontWeight:900,color:tgt.min<=bf&&bf<=tgt.max?G.green:G.orange}},tgt.label),
+        h("div",{style:{fontSize:9,color:G.muted,marginTop:4}},"idéal : "+tgt.ideal+"%")
+      )
+    ),
+    // Barre
+    h("div",{style:{position:"relative",background:G.bg3,borderRadius:6,height:10,marginBottom:8,overflow:"hidden"}},
+      h("div",{style:{position:"absolute",left:tgtMinPct+"%",width:(tgtMaxPct-tgtMinPct)+"%",height:"100%",background:G.green+"33"}}),
+      h("div",{style:{position:"absolute",left:0,width:pct+"%",height:"100%",background:"linear-gradient(90deg,"+G.green+","+cat.color+")",borderRadius:6,transition:"width 0.5s"}}),
+      h("div",{style:{position:"absolute",left:pct+"%",top:-2,width:3,height:14,background:"#fff",borderRadius:2,transform:"translateX(-50%)"}})
+    ),
+    h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:12}},
+      h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace"}},"3%"),
+      h("div",{style:{fontSize:8,color:G.green,fontFamily:"monospace"}},"← cible "+tgt.label+" →"),
+      h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace"}},"40%")
+    ),
+    // Composition
+    poids&&mg&&mm?h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}},
+      h("div",{style:{background:G.bg2,borderRadius:8,padding:"8px 6px",textAlign:"center"}},
+        h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace",marginBottom:3}},"MASSE TOTALE"),
+        h("div",{style:{fontSize:16,fontWeight:900,color:G.text}},poids,h("span",{style:{fontSize:9,color:G.muted}},"kg"))
+      ),
+      h("div",{style:{background:G.bg2,borderRadius:8,padding:"8px 6px",textAlign:"center"}},
+        h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace",marginBottom:3}},"MASSE MAIGRE"),
+        h("div",{style:{fontSize:16,fontWeight:900,color:G.cyan}},mm,h("span",{style:{fontSize:9,color:G.muted}},"kg"))
+      ),
+      h("div",{style:{background:G.bg2,borderRadius:8,padding:"8px 6px",textAlign:"center"}},
+        h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace",marginBottom:3}},"MASSE GRASSE"),
+        h("div",{style:{fontSize:16,fontWeight:900,color:cat.color}},mg,h("span",{style:{fontSize:9,color:G.muted}},"kg"))
+      )
+    ):null
+  );
+}
+
+// ── TAB NOUVEAU BILAN ────────────────────────────────────────────────────
+function TabNouveauBilan(props){
+  var bilans=props.bilans,setBilans=props.setBilans,obj=props.objectif;
+  var sorted=bilans.slice().sort(function(a,b){return a.date.localeCompare(b.date);});
+  var last=sorted.length>0?sorted[sorted.length-1]:null;
+  var blank={date:todayStr(),poids:"",cou:"",taille:"",bras:"",cuisses:"",poitrine:"",note:""};
+
+  var sf=useState(blank),form=sf[0],setForm=sf[1];
+  var sp=useState({face:null,dos:null,profil:null}),photos=sp[0],setPhotos=sp[1];
+  var ss=useState(false),saved=ss[0],setSaved=ss[1];
+  var oi=OBJECTIFS.find(function(o){return o.id===obj;})||OBJECTIFS[1];
+
+  function upd(k,v){setForm(function(f){var n=Object.assign({},f);n[k]=v;return n;});}
+
+  function handlePhoto(type,e){
+    var file=e.target.files[0];if(!file)return;
+    var img=new Image();
+    var url=URL.createObjectURL(file);
+    img.onload=function(){
+      var canvas=document.createElement("canvas");
+      var max=800;
+      var w=img.width,h=img.height;
+      if(w>h){if(w>max){h=Math.round(h*max/w);w=max;}}
+      else{if(h>max){w=Math.round(w*max/h);h=max;}}
+      canvas.width=w;canvas.height=h;
+      var ctx=canvas.getContext("2d");
+      ctx.drawImage(img,0,0,w,h);
+      var compressed=canvas.toDataURL("image/jpeg",0.7);
+      URL.revokeObjectURL(url);
+      setPhotos(function(p){var n=Object.assign({},p);n[type]=compressed;return n;});
+    };
+    img.src=url;
+  }
+
+
+
+  // Calcul BF en temps réel
+  var liveBF=null;
+  if(form.taille&&form.cou){
+    liveBF=navyBF(parseFloat(form.taille),parseFloat(form.cou),PROFIL.tailleCm,parseFloat(form.hanches));
+  }
+  var livePoids=form.poids?parseFloat(form.poids):null;
+  var liveMM=liveBF&&livePoids?rd(livePoids*(1-liveBF/100)):null;
+  var liveMG=liveBF&&livePoids?rd(livePoids*liveBF/100):null;
+
+  function saveBilan(){
+    var ok=MESURES.some(function(m){return form[m.key]&&form[m.key]!=="";});
+    if(!ok){alert("Entre au moins une mensuration !");return;}
+    var bf=form.taille&&form.cou?navyBF(parseFloat(form.taille),parseFloat(form.cou),PROFIL.tailleCm,parseFloat(form.hanches)):null;
+    var poids=form.poids?parseFloat(form.poids):null;
+    var b={id:Date.now(),date:form.date,note:form.note,objectif:obj,bf:bf,
+      mm:bf&&poids?rd(poids*(1-bf/100)):null,
+      mg:bf&&poids?rd(poids*bf/100):null};
+    MESURES.forEach(function(m){b[m.key]=form[m.key]?parseFloat(form[m.key]):null;});
+    if(photos.face)pSave(b.id,"face",photos.face);
+    if(photos.dos)pSave(b.id,"dos",photos.dos);
+    if(photos.profil)pSave(b.id,"profil",photos.profil);
+    var updated=bilans.concat([b]);
+    setBilans(updated);lsSet("bt_bilans",updated);
+    setSaved(true);setForm(blank);setPhotos({face:null,dos:null,profil:null});
+    setTimeout(function(){setSaved(false);},2500);
+  }
+
+  return h("div",{style:{padding:"16px 16px 90px"}},
+    h("div",{style:{marginBottom:14}},
+      h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em"}},"HEBDOMADAIRE · SUIVI PERSONNALISÉ"),
+      h("h2",{style:{margin:"3px 0 0",fontSize:22,fontWeight:900,color:G.gold}},"NOUVEAU BILAN")
+    ),
+
+    // Objectif
+    h(Card,{style:{background:oi.color+"12",border:"1px solid "+oi.color+"40",marginBottom:14}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+        h("div",null,
+          h(Lbl,null,"OBJECTIF ACTIF"),
+          h("div",{style:{fontSize:15,fontWeight:900,color:oi.color}},oi.icon+" "+oi.label),
+          h("div",{style:{fontSize:10,color:G.muted,marginTop:2}},oi.desc)
+        ),
+        PROFIL.trt?h("div",{style:{background:G.purple+"22",borderRadius:8,padding:"5px 10px"}},
+          h("div",{style:{fontSize:8,color:G.purple,fontFamily:"monospace",fontWeight:900}},"TRT"),
+          h("div",{style:{fontSize:7,color:G.muted,fontFamily:"monospace"}},"ACTIF")
+        ):null
+      )
+    ),
+
+    // Date
+    h(Card,null,
+      h(Lbl,null,"DATE DU BILAN"),
+      h("input",{type:"date",value:form.date,onChange:function(e){upd("date",e.target.value);},
+        style:{width:"100%",background:G.bg3,border:"1px solid "+G.border,color:G.text,borderRadius:8,padding:"10px 12px",fontSize:14}}),
+      h("div",{style:{fontSize:9,color:G.muted,marginTop:6,fontStyle:"italic"}},"⏰ Matin à jeun — mêmes conditions chaque semaine")
+    ),
+
+    // Preview BF en temps réel
+    liveBF?h(Card,{style:{background:G.cyan+"0d",border:"1px solid "+G.cyan+"40",marginBottom:4}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+        h("div",null,
+          h(Lbl,null,"BODY FAT CALCULÉ (NAVY)"),
+          h("div",{style:{fontSize:28,fontWeight:900,color:getBFCat(liveBF).color}},liveBF,h("span",{style:{fontSize:14,color:G.muted}},"%")),
+          h("div",{style:{fontSize:10,fontWeight:700,color:getBFCat(liveBF).color}},getBFCat(liveBF).label)
+        ),
+        livePoids&&liveMM?h("div",{style:{textAlign:"right"}},
+          h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace"}},"MASSE MAIGRE"),
+          h("div",{style:{fontSize:20,fontWeight:900,color:G.cyan}},liveMM,"kg"),
+          h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",marginTop:4}},"MASSE GRASSE"),
+          h("div",{style:{fontSize:16,fontWeight:700,color:G.orange}},liveMG,"kg")
+        ):null
+      )
+    ):h(Card,{style:{background:G.bg3,border:"1px dashed "+G.border}},
+      h("div",{style:{fontSize:10,color:G.muted,textAlign:"center"}},"📐 Saisis le tour de COU + tour de TAILLE pour calculer le body fat automatiquement")
+    ),
+
+    // Mensurations
+    h("div",{style:{fontSize:9,color:G.gold,fontFamily:"monospace",letterSpacing:"0.1em",marginBottom:8,marginTop:10}},"MENSURATIONS"),
+    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+      MESURES.map(function(m){
+        var lv=last&&last[m.key]?last[m.key]:null;
+        var cv=form[m.key]?parseFloat(form[m.key]):null;
+        var delta=cv&&lv?rd(cv-lv):null;
+        var dc=delta===null?G.muted:delta>0?G.green:delta<0?G.red:G.muted;
+        var isBFKey=m.key==="cou"||m.key==="taille";
+        return h("div",{key:m.key,style:{background:G.bg3,borderRadius:10,padding:"10px 12px",border:"1px solid "+(isBFKey?G.cyan+"44":G.border)}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}},
+            h("div",null,
+              h("div",{style:{fontSize:9,color:isBFKey?G.cyan:G.muted,fontFamily:"monospace",fontWeight:isBFKey?900:400}},m.label+(isBFKey?" 📐":"")),
+              m.hint?h("div",{style:{fontSize:7,color:G.muted,marginTop:1}},m.hint):null
+            ),
+            delta!==null?h("div",{style:{fontSize:9,fontWeight:700,color:dc}},(delta>0?"+":"")+delta+m.unit):null
+          ),
+          h("div",{style:{display:"flex",alignItems:"center",gap:4}},
+            h("input",{type:"number",value:form[m.key],onChange:function(e){upd(m.key,e.target.value);},
+              placeholder:lv?String(lv):"—",
+              style:{flex:1,background:G.bg2,border:"1px solid "+(isBFKey?G.cyan+"33":G.border),color:G.text,borderRadius:7,padding:"8px 4px",fontSize:16,fontWeight:800,textAlign:"center",width:"100%"}}),
+            h("span",{style:{fontSize:11,color:G.muted,minWidth:18}},m.unit)
+          ),
+          lv?h("div",{style:{fontSize:8,color:G.muted,marginTop:3,textAlign:"center"}},"Préc: "+lv+m.unit):null
+        );
+      })
+    ),
+
+    // Photos
+    h("div",{style:{fontSize:9,color:G.gold,fontFamily:"monospace",letterSpacing:"0.1em",marginBottom:8,marginTop:10}},"PHOTOS"),
+    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}},
+      [["face","FACE"],["dos","DOS"],["profil","PROFIL"]].map(function(pair){
+        var type=pair[0],label=pair[1],photo=photos[type];
+        return h("div",{key:type,style:{display:"flex",flexDirection:"column",gap:4}},
+          h("div",{style:{background:G.bg3,border:"1px solid "+(photo?G.gold:G.border),borderRadius:10,aspectRatio:"3/4",overflow:"hidden",position:"relative",display:"flex",alignItems:"center",justifyContent:"center"}},
+            photo
+              ? h("img",{src:photo,style:{width:"100%",height:"100%",objectFit:"cover",display:"block"}})
+              : h("div",{style:{textAlign:"center"}},
+                  h("div",{style:{fontSize:28}},"📷"),
+                  h("div",{style:{fontSize:8,color:G.muted,marginTop:4,fontFamily:"monospace"}},label)
+                ),
+            photo?h("div",{style:{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,0.7)",fontSize:8,color:G.gold,textAlign:"center",padding:"3px",fontFamily:"monospace"}},label+" ✓"):null
+          ),
+          h("div",{style:{position:"relative",background:photo?G.goldDim+"44":"#1a1a1a",border:"1px solid "+(photo?G.gold:G.border),borderRadius:7,padding:"7px 0",textAlign:"center"}},
+            h("span",{style:{fontSize:9,fontWeight:700,color:photo?G.gold:G.muted,fontFamily:"monospace",pointerEvents:"none"}},photo?"✓ CHANGER":"+ AJOUTER"),
+            h("input",{
+              type:"file",accept:"image/*",
+              onChange:function(e){handlePhoto(type,e);},
+              style:{position:"absolute",inset:0,width:"100%",height:"100%",opacity:0,cursor:"pointer"}
+            })
+          )
+        );
+      })
+    ),
+
+    // Note
+    h(Card,null,
+      h(Lbl,null,"NOTE LIBRE"),
+      h("textarea",{value:form.note,onChange:function(e){upd("note",e.target.value);},
+        placeholder:"Énergie, récup, qualité du sommeil, ressenti général...",rows:3,
+        style:{width:"100%",background:G.bg3,border:"1px solid "+G.border,color:G.muted,borderRadius:8,padding:"10px 12px",fontSize:12,boxSizing:"border-box"}})
+    ),
+
+    h("button",{onClick:saveBilan,style:{width:"100%",background:saved?"linear-gradient(135deg,#4ecb71,#2a8a4a)":"linear-gradient(135deg,#2f7cf6,#1d4ea3)",border:"none",color:"#fff",borderRadius:10,padding:"14px",fontSize:13,fontWeight:900,cursor:"pointer",letterSpacing:"0.05em"}},
+      saved?"✓ BILAN SAUVEGARDÉ !":"SAUVEGARDER CE BILAN")
+  );
+}
+
+// ── TAB ANALYSE ──────────────────────────────────────────────────────────
+function TabAnalyse(props){
+  var bilans=props.bilans,obj=props.objectif;
+  var sgk=useState("bf"),gk=sgk[0],setGk=sgk[1];
+
+  if(bilans.length===0) return h("div",{style:{padding:"60px 16px",textAlign:"center"}},
+    h("div",{style:{fontSize:40,marginBottom:16}},"📊"),
+    h("div",{style:{fontSize:16,fontWeight:700,color:G.muted}},"Aucun bilan encore"),
+    h("div",{style:{fontSize:12,color:G.muted,marginTop:8}},"Commence par remplir le premier bilan hebdomadaire")
+  );
+
+  var sorted=bilans.slice().sort(function(a,b){return a.date.localeCompare(b.date);});
+  var last=sorted[sorted.length-1],prev=sorted.length>1?sorted[sorted.length-2]:null,first=sorted[0];
+  var oi=OBJECTIFS.find(function(o){return o.id===obj;})||OBJECTIFS[1];
+  var alerts=analyzeBB(bilans,obj);
+
+  // Clés disponibles pour graphique
+  var graphKeys=[
+    {key:"bf",  label:"BODY FAT",     unit:"%"},
+    {key:"mm",  label:"MASSE MAIGRE", unit:"kg"},
+    {key:"mg",  label:"MASSE GRASSE", unit:"kg"},
+    {key:"poids",label:"POIDS",       unit:"kg"},
+    {key:"taille",label:"TAILLE",     unit:"cm"},
+    {key:"bras",  label:"BRAS",       unit:"cm"}
+  ].filter(function(k){return sorted.some(function(b){return b[k.key]!=null;});});
+
+  var gki=graphKeys.find(function(k){return k.key===gk;})||graphKeys[0];
+  var gData=sorted.map(function(b){return{date:fmtS(b.date),val:b[gk]!=null?b[gk]:null};}).filter(function(d){return d.val!==null;});
+  var maxV=gData.length>0?Math.max.apply(null,gData.map(function(d){return d.val;})):0;
+  var minV=gData.length>0?Math.min.apply(null,gData.map(function(d){return d.val;})):0;
+  var rng=maxV-minV||1;
+
+  return h("div",{style:{padding:"16px 16px 90px"}},
+    h("div",{style:{marginBottom:14}},
+      h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em"}},"BODYBUILDING · SUIVI PERSONNALISÉ"),
+      h("h2",{style:{margin:"3px 0 0",fontSize:22,fontWeight:900,color:G.gold}},"ANALYSE")
+    ),
+
+    // Badge objectif + TRT
+    h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:14}},
+      h("div",{style:{background:oi.color+"20",border:"1px solid "+oi.color+"40",borderRadius:8,padding:"5px 12px",fontSize:10,fontWeight:900,color:oi.color,fontFamily:"monospace"}},oi.icon+" "+oi.label),
+      PROFIL.trt?h("div",{style:{background:G.purple+"20",border:"1px solid "+G.purple+"40",borderRadius:8,padding:"5px 10px",fontSize:9,fontWeight:900,color:G.purple,fontFamily:"monospace"}},"TRT ACTIF"):null,
+      h("div",{style:{fontSize:9,color:G.muted}},bilans.length+" bilans")
+    ),
+
+    // Body Fat Gauge du dernier bilan
+    last.bf!=null?h(BFGauge,{bf:last.bf,obj:obj,objLabel:oi.label,poids:last.poids}):
+      h(Card,{style:{background:G.bg3,border:"1px dashed "+G.border,textAlign:"center",padding:16}},
+        h("div",{style:{fontSize:10,color:G.muted}},"Saisis le tour de cou + taille dans le bilan pour voir le body fat")
+      ),
+
+    // Stats synthèse
+    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}},
+      [
+        {label:"POIDS",    val:last.poids,  unit:"kg", d:prev&&prev.poids!=null?rd(last.poids-prev.poids):null,  color:G.text},
+        {label:"MASSE M.", val:last.mm,     unit:"kg", d:prev&&prev.mm!=null?rd(last.mm-prev.mm):null,           color:G.cyan},
+        {label:"BRAS",     val:last.bras,   unit:"cm", d:prev&&prev.bras!=null?rd(last.bras-prev.bras):null,     color:G.gold}
+      ].map(function(s){
+        return s.val!=null?h(SBox,{key:s.label,label:s.label,value:s.val,unit:s.unit,delta:s.d,color:s.color}):null;
+      })
+    ),
+    // Stats ligne 2 — masse grasse
+    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}},
+      [
+        {label:"MASSE GRASSE", val:last.mg, unit:"kg", d:prev&&prev.mg!=null?rd(last.mg-prev.mg):null, color:G.orange},
+        {label:"BODY FAT",     val:last.bf!=null?last.bf:null, unit:"%", d:prev&&prev.bf!=null?rd(last.bf-prev.bf):null, color:last.bf!=null?getBFCat(last.bf).color:G.muted}
+      ].map(function(s){
+        return s.val!=null?h(SBox,{key:s.label,label:s.label,value:s.val,unit:s.unit,delta:s.d,color:s.color}):null;
+      })
+    ),
+
+    // Graphique évolution
+    gData.length>1?h("div",null,
+      h("div",{style:{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}},
+        graphKeys.map(function(k){
+          var a=gk===k.key;
+          return h("button",{key:k.key,onClick:function(){setGk(k.key);},
+            style:{background:a?G.gold:G.bg3,border:"1px solid "+(a?G.gold:G.border),color:a?"#fff":G.muted,borderRadius:7,padding:"5px 8px",fontSize:9,fontWeight:700,cursor:"pointer",fontFamily:"monospace"}},k.label);
+        })
+      ),
+      h(Card,{style:{marginBottom:14}},
+        h(Lbl,null,"ÉVOLUTION "+(gki?gki.label:"")+" ("+(gki?gki.unit:"")+")"),
+        h("div",{style:{display:"flex",gap:3,alignItems:"flex-end",height:90,marginBottom:10}},
+          gData.map(function(d,i){
+            var isL=i===gData.length-1;
+            var hp=Math.max(8,((d.val-minV)/rng)*80+10);
+            return h("div",{key:i,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}},
+              isL?h("div",{style:{fontSize:8,color:G.gold,fontWeight:900,fontFamily:"monospace"}},d.val):null,
+              h("div",{style:{width:"100%",height:hp+"%",background:isL?G.gold:G.bg3,borderRadius:"3px 3px 0 0",border:"1px solid "+(isL?G.gold:G.border),minHeight:8}}),
+              h("div",{style:{fontSize:7,color:G.muted,fontFamily:"monospace",textAlign:"center"}},d.date)
+            );
+          })
+        ),
+        first[gk]!=null&&last[gk]!=null?h("div",{style:{borderTop:"1px solid "+G.border,paddingTop:10,display:"flex",justifyContent:"space-between"}},
+          h("div",{style:{fontSize:10,color:G.muted}},"Variation totale"),
+          h("div",{style:{fontSize:12,fontWeight:900,color:last[gk]>first[gk]?G.green:last[gk]<first[gk]?G.red:G.muted}},
+            (last[gk]>first[gk]?"+":"")+rd(last[gk]-first[gk])+(gki?gki.unit:""))
+        ):null
+      )
+    ):null,
+
+    // Directives bodybuilding
+    alerts.length>0?h("div",null,
+      h("div",{style:{fontSize:9,color:G.gold,fontFamily:"monospace",letterSpacing:"0.1em",marginBottom:10}},"DIRECTIVES BODYBUILDING PERSONNALISÉES"),
+      alerts.map(function(a,i){
+        return h(Card,{key:i,style:{background:a.color+"0d",border:"1px solid "+a.color+"33",marginBottom:10}},
+          h("div",{style:{display:"flex",gap:12,marginBottom:a.actions&&a.actions.length?10:0}},
+            h("div",{style:{background:a.color+"22",borderRadius:10,padding:"8px 10px",fontSize:15,fontWeight:900,color:a.color,minWidth:40,textAlign:"center"}},a.icon),
+            h("div",{style:{flex:1}},
+              h("div",{style:{fontSize:8,color:a.color,fontFamily:"monospace",fontWeight:900,marginBottom:3,letterSpacing:"0.08em"}},a.urgency),
+              h("div",{style:{fontSize:13,fontWeight:800,color:G.text}},a.title),
+              h("div",{style:{fontSize:11,color:G.muted,marginTop:4,lineHeight:1.6}},a.msg)
+            )
+          ),
+          a.actions&&a.actions.length?h("div",{style:{borderTop:"1px solid "+a.color+"20",paddingTop:10}},
+            h("div",{style:{fontSize:9,color:a.color,fontFamily:"monospace",marginBottom:8}},"ACTIONS"),
+            a.actions.map(function(ac,j){
+              return h("div",{key:j,style:{display:"flex",gap:10,marginBottom:7}},
+                h("span",{style:{color:a.color,fontWeight:900,fontSize:12,minWidth:16}},(j+1)+"."),
+                h("span",{style:{fontSize:11,color:G.muted,lineHeight:1.6}},ac)
+              );
+            })
+          ):null
+        );
+      })
+    ):null,
+
+    bilans.length===1?h(Card,{style:{textAlign:"center",padding:20}},
+      h("div",{style:{fontSize:11,color:G.muted}},"L'analyse complète sera disponible dès le 2ème bilan")
+    ):null
+  );
+}
+
+// ── TAB HISTORIQUE ───────────────────────────────────────────────────────
+function TabHistorique(props){
+  var bilans=props.bilans,setBilans=props.setBilans;
+  var ss=useState(null),sel=ss[0],setSel=ss[1];
+  var spv=useState(null),pv=spv[0],setPv=spv[1];
+  var sorted=bilans.slice().sort(function(a,b){return b.date.localeCompare(a.date);});
+
+  function del(id){
+    if(!confirm("Supprimer ce bilan ?"))return;
+    var u=bilans.filter(function(b){return b.id!==id;});
+    setBilans(u);lsSet("bt_bilans",u);setSel(null);
+  }
+
+  if(sel){
+    var b=sel;
+    var ph={face:pLoad(b.id,"face"),dos:pLoad(b.id,"dos"),profil:pLoad(b.id,"profil")};
+    var hph=ph.face||ph.dos||ph.profil;
+    return h("div",{style:{padding:"16px 16px 90px"}},
+      pv?h("div",{onClick:function(){setPv(null);},style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.97)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center"}},
+        h("img",{src:pv,style:{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}})
+      ):null,
+      h("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:18}},
+        h("button",{onClick:function(){setSel(null);},style:{background:"none",border:"none",color:G.gold,fontSize:20,cursor:"pointer",padding:0}},"←"),
+        h("div",{style:{flex:1}},
+          h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace"}},"BILAN DU"),
+          h("div",{style:{fontSize:18,fontWeight:900,color:G.text}},fmtD(b.date))
+        ),
+        h("button",{onClick:function(){del(b.id);},style:{background:"none",border:"1px solid #440000",color:G.red,borderRadius:7,padding:"5px 10px",fontSize:10,cursor:"pointer"}},"Supprimer")
+      ),
+      // BF si dispo
+      b.bf!=null?h(BFGauge,{bf:b.bf,obj:b.objectif||"recompo",objLabel:(OBJECTIFS.find(function(o){return o.id===b.objectif;})||OBJECTIFS[1]).label,poids:b.poids}):null,
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}},
+        MESURES.filter(function(m){return b[m.key];}).map(function(m){
+          return h(SBox,{key:m.key,label:m.label,value:b[m.key],unit:m.unit,color:G.gold});
+        })
+      ),
+      hph?h("div",null,
+        h("div",{style:{fontSize:9,color:G.gold,fontFamily:"monospace",marginBottom:8}},"PHOTOS"),
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}},
+          [["face","FACE"],["dos","DOS"],["profil","PROFIL"]].map(function(pair){
+            var t=pair[0],l=pair[1],p=ph[t];
+            return p?h("div",{key:t,onClick:function(){setPv(p);},style:{cursor:"pointer",borderRadius:10,overflow:"hidden",aspectRatio:"3/4",position:"relative"}},
+              h("img",{src:p,style:{width:"100%",height:"100%",objectFit:"cover"}}),
+              h("div",{style:{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,0.65)",fontSize:8,color:G.gold,textAlign:"center",padding:"3px 0",fontFamily:"monospace"}},l)
+            ):h("div",{key:t,style:{background:G.bg3,borderRadius:10,aspectRatio:"3/4",display:"flex",alignItems:"center",justifyContent:"center",border:"1px solid "+G.border}},
+              h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace"}},l)
+            );
+          })
+        )
+      ):null,
+      b.note?h(Card,null,h(Lbl,null,"NOTE"),h("div",{style:{fontSize:12,color:G.muted,lineHeight:1.6}},b.note)):null
+    );
+  }
+
+  return h("div",{style:{padding:"16px 16px 90px"}},
+    h("div",{style:{marginBottom:18}},
+      h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em"}},"ARCHIVE"),
+      h("h2",{style:{margin:"3px 0 0",fontSize:22,fontWeight:900,color:G.gold}},"HISTORIQUE")
+    ),
+    sorted.length===0?h("div",{style:{textAlign:"center",padding:40}},h("div",{style:{fontSize:11,color:G.muted}},"Aucun bilan enregistré")):
+    sorted.map(function(b,i){
+      var next=sorted[i+1];
+      var dp=b.poids&&next&&next.poids?rd(b.poids-next.poids):null;
+      var hph=pLoad(b.id,"face")||pLoad(b.id,"dos");
+      var oi=OBJECTIFS.find(function(o){return o.id===b.objectif;});
+      var bCopy=b;
+      return h(Card,{key:b.id,style:{cursor:"pointer"},onClick:function(){setSel(bCopy);}},
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+          h("div",{style:{flex:1}},
+            h("div",{style:{display:"flex",gap:8,alignItems:"center",marginBottom:4}},
+              h("div",{style:{fontSize:13,fontWeight:800,color:G.text}},fmtD(b.date)),
+              oi?h("div",{style:{fontSize:8,background:oi.color+"20",color:oi.color,borderRadius:5,padding:"2px 7px",fontFamily:"monospace",fontWeight:700}},oi.label):null,
+              hph?h("div",{style:{fontSize:10,color:G.muted}},"📷"):null
+            ),
+            h("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},
+              b.poids?h("span",{style:{fontSize:10,color:G.muted}},h("span",{style:{color:G.text,fontWeight:700}},b.poids),"kg "):null,
+              b.bf!=null?h("span",{style:{fontSize:10,color:getBFCat(b.bf).color,fontWeight:700}},b.bf,"%BF "):null,
+              b.mm?h("span",{style:{fontSize:10,color:G.cyan}},b.mm,"kg MM "):null
+            )
+          ),
+          h("div",{style:{textAlign:"right"}},
+            dp!==null?h("div",{style:{fontSize:13,fontWeight:900,color:dp>0?G.green:dp<0?G.red:G.muted}},(dp>0?"+":"")+dp+"kg"):null,
+            h("div",{style:{fontSize:11,color:G.muted,marginTop:2}},"→")
+          )
+        )
+      );
+    })
+  );
+}
+
+// ── TAB COMPARAISON ──────────────────────────────────────────────────────
+function TabComparaison(props){
+  var bilans=props.bilans,obj=props.obj||"recompo";
+  var sorted=bilans.slice().sort(function(a,b){return a.date.localeCompare(b.date);});
+  var sa=useState(sorted.length>0?sorted[0].id:null),aId=sa[0],setAId=sa[1];
+  var sb=useState(sorted.length>1?sorted[sorted.length-1].id:null),bId=sb[0],setBId=sb[1];
+  var san=useState("face"),ang=san[0],setAng=san[1];
+
+  if(bilans.length<2) return h("div",{style:{padding:"60px 16px",textAlign:"center"}},
+    h("div",{style:{fontSize:40,marginBottom:16}},"🔄"),
+    h("div",{style:{fontSize:16,fontWeight:700,color:G.muted}},"Comparaison disponible"),
+    h("div",{style:{fontSize:12,color:G.muted,marginTop:8}},"dès que tu as 2 bilans")
+  );
+
+  var bA=bilans.find(function(b){return b.id===aId;}),bB=bilans.find(function(b){return b.id===bId;});
+  var pA=bA?pLoad(bA.id,ang):null,pB=bB?pLoad(bB.id,ang):null;
+
+  return h("div",{style:{padding:"16px 16px 90px"}},
+    h("div",{style:{marginBottom:18}},
+      h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em"}},"AVANT / APRÈS"),
+      h("h2",{style:{margin:"3px 0 0",fontSize:22,fontWeight:900,color:G.gold}},"COMPARAISON")
+    ),
+    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}},
+      [["A",aId,setAId],["B",bId,setBId]].map(function(item){
+        var lbl=item[0],val=item[1],setter=item[2];
+        return h("div",{key:lbl},
+          h(Lbl,null,"BILAN "+lbl),
+          h("select",{value:val||"",onChange:function(e){setter(parseInt(e.target.value));},
+            style:{width:"100%",background:G.bg3,border:"1px solid "+G.border,color:G.text,borderRadius:8,padding:"8px 28px 8px 10px",fontSize:11}},
+            sorted.map(function(b){return h("option",{key:b.id,value:b.id},fmtD(b.date));})
+          )
+        );
+      })
+    ),
+    h("div",{style:{display:"flex",gap:6,marginBottom:14}},
+      [["face","FACE"],["dos","DOS"],["profil","PROFIL"]].map(function(pair){
+        var a=pair[0],l=pair[1],active=ang===a;
+        return h("button",{key:a,onClick:function(){setAng(a);},
+          style:{flex:1,background:active?G.gold:G.bg3,border:"1px solid "+(active?G.gold:G.border),color:active?"#fff":G.muted,borderRadius:8,padding:"8px 0",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"monospace"}},l);
+      })
+    ),
+    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}},
+      [[bA,pA,"AVANT"],[bB,pB,"APRÈS"]].map(function(item,i){
+        var b=item[0],p=item[1],lbl=item[2];
+        return h("div",{key:i},
+          h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",marginBottom:4,textAlign:"center"}},lbl+" · "+(b?fmtD(b.date):"—")),
+          h("div",{style:{borderRadius:12,overflow:"hidden",aspectRatio:"3/4",background:G.bg3,border:"1px solid "+G.border,display:"flex",alignItems:"center",justifyContent:"center"}},
+            p?h("img",{src:p,style:{width:"100%",height:"100%",objectFit:"cover"}}):
+              h("div",{style:{fontSize:10,color:G.muted,textAlign:"center"}},"Pas de photo")
+          )
+        );
+      })
+    ),
+    // Delta composition
+    bA&&bB?h(Card,null,
+      h("div",{style:{fontSize:9,color:G.gold,fontFamily:"monospace",marginBottom:10}},"ÉVOLUTION "+fmtD(bA.date)+" → "+fmtD(bB.date)),
+      [
+        {key:"poids",label:"POIDS",unit:"kg",inv:false},
+        {key:"bf",   label:"BODY FAT",unit:"%",inv:obj==="seche"||obj==="recompo"},
+        {key:"mm",   label:"MASSE MAIGRE",unit:"kg",inv:false},
+        {key:"mg",   label:"MASSE GRASSE",unit:"kg",inv:true},
+        {key:"bras", label:"BRAS",unit:"cm",inv:false},
+        {key:"taille",label:"TOUR TAILLE",unit:"cm",inv:true}
+      ].filter(function(r){return bA[r.key]!=null&&bB[r.key]!=null;}).map(function(r){
+        var delta=rd(bB[r.key]-bA[r.key]);
+        var c=delta===0?G.muted:(r.inv?delta<0:delta>0)?G.green:G.red;
+        return h("div",{key:r.key,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+G.border}},
+          h("div",{style:{fontSize:11,color:G.muted}},r.label),
+          h("div",{style:{display:"flex",gap:10,alignItems:"center"}},
+            h("span",{style:{fontSize:10,color:G.muted}},bA[r.key]+r.unit),
+            h("span",{style:{fontSize:9,color:G.muted}},"→"),
+            h("span",{style:{fontSize:11,color:G.text,fontWeight:700}},bB[r.key]+r.unit),
+            h("span",{style:{fontSize:12,fontWeight:900,color:c,minWidth:48,textAlign:"right"}},(delta>0?"+":"")+delta+r.unit)
+          )
+        );
+      })
+    ):null
+  );
+}
+
+// ── TAB RÉGLAGES ─────────────────────────────────────────────────────────
+function TabReglages(props){
+  var obj=props.objectif,setObj=props.setObjectif,bilans=props.bilans,setBilans=props.setBilans;
+  var stp=useState(0),ptick=stp[0],setPtick=stp[1];
+  function updProfil(k,v){var p={};p[k]=v;saveProfil(p);setPtick(ptick+1);}
+
+  function exportData(){
+    var data={version:2,exportDate:todayStr(),profil:PROFIL,bilans:bilans,objectif:obj};
+    var blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement("a");
+    a.href=url;a.download="body-tracker-"+todayStr()+".json";a.click();URL.revokeObjectURL(url);
+  }
+
+  function importData(e){
+    var file=e.target.files[0];if(!file)return;
+    var r=new FileReader();
+    r.onload=function(ev){
+      try{
+        var data=JSON.parse(ev.target.result);
+        if(!data.bilans){alert("Fichier invalide !");return;}
+        if(!confirm("Restaurer le backup du "+data.exportDate+" ?"))return;
+        setBilans(data.bilans);lsSet("bt_bilans",data.bilans);
+        if(data.objectif){setObj(data.objectif);lsSet("bt_objectif",data.objectif);}
+        alert("Données restaurées ! "+data.bilans.length+" bilans.");
+      }catch(err){alert("Erreur lecture fichier.");}
+    };
+    r.readAsText(file);
+  }
+
+  return h("div",{style:{padding:"16px 16px 90px"}},
+    h("div",{style:{marginBottom:18}},
+      h(Lbl,null,"CONFIGURATION"),
+      h("h2",{style:{margin:"3px 0 0",fontSize:22,fontWeight:900,color:G.gold}},"RÉGLAGES")
+    ),
+
+    // Profil — éditable
+    h(Card,{style:{background:G.purple+"0d",border:"1px solid "+G.purple+"33",marginBottom:16}},
+      h(Lbl,null,"MON PROFIL"),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+        h("div",null,
+          h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace",marginBottom:4}},"SEXE"),
+          h("select",{value:PROFIL.sexe,onChange:function(e){updProfil("sexe",e.target.value);},
+            style:{width:"100%",background:G.bg3,border:"1px solid "+G.border,color:G.text,borderRadius:8,padding:"9px 10px",fontSize:12}},
+            h("option",{value:"homme"},"Homme"),h("option",{value:"femme"},"Femme")
+          )
+        ),
+        h("div",null,
+          h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace",marginBottom:4}},"ÂGE"),
+          h("input",{type:"number",value:PROFIL.age,onChange:function(e){updProfil("age",parseInt(e.target.value)||PROFIL.age);},
+            style:{width:"100%",background:G.bg3,border:"1px solid "+G.border,color:G.text,borderRadius:8,padding:"9px 10px",fontSize:12,boxSizing:"border-box"}})
+        ),
+        h("div",null,
+          h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace",marginBottom:4}},"TAILLE (CM)"),
+          h("input",{type:"number",value:PROFIL.tailleCm,onChange:function(e){updProfil("tailleCm",parseInt(e.target.value)||PROFIL.tailleCm);},
+            style:{width:"100%",background:G.bg3,border:"1px solid "+G.border,color:G.text,borderRadius:8,padding:"9px 10px",fontSize:12,boxSizing:"border-box"}})
+        ),
+        h("div",null,
+          h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace",marginBottom:4}},"TRT / HORMONOTHÉRAPIE"),
+          h("button",{onClick:function(){updProfil("trt",!PROFIL.trt);},
+            style:{width:"100%",background:PROFIL.trt?G.purple+"22":G.bg3,border:"1px solid "+(PROFIL.trt?G.purple:G.border),color:PROFIL.trt?G.purple:G.muted,borderRadius:8,padding:"9px 10px",fontSize:11,fontWeight:800,cursor:"pointer"}},
+            PROFIL.trt?"ACTIF":"INACTIF")
+        )
+      ),
+      h("div",{style:{fontSize:9,color:G.muted,lineHeight:1.5}},"Ces informations calibrent le calcul du body fat (Navy) et les recommandations personnalisées.")
+    ),
+
+    h("div",{style:{fontSize:9,color:G.gold,fontFamily:"monospace",marginBottom:10}},"OBJECTIF ACTUEL"),
+    h("div",{style:{display:"flex",flexDirection:"column",gap:8,marginBottom:20}},
+      OBJECTIFS.map(function(o){
+        var a=obj===o.id;
+        return h("button",{key:o.id,onClick:function(){setObj(o.id);lsSet("bt_objectif",o.id);},
+          style:{display:"flex",alignItems:"center",gap:14,background:a?o.color+"18":G.bg2,border:"1px solid "+(a?o.color+"60":G.border),borderRadius:12,padding:"13px 16px",cursor:"pointer",textAlign:"left"}},
+          h("div",{style:{fontSize:20,color:o.color,fontWeight:900,minWidth:28,textAlign:"center"}},o.icon),
+          h("div",{style:{flex:1}},
+            h("div",{style:{fontSize:13,fontWeight:900,color:a?o.color:G.text}},o.label),
+            h("div",{style:{fontSize:11,color:G.muted,marginTop:2}},o.desc)
+          ),
+          a?h("div",{style:{fontSize:16,color:o.color}},"✓"):null
+        );
+      })
+    ),
+
+    h("div",{style:{fontSize:9,color:G.gold,fontFamily:"monospace",marginBottom:10}},"SAUVEGARDE"),
+    h(Card,null,
+      h("div",{style:{fontSize:11,color:G.muted,marginBottom:12}},bilans.length+" bilan"+(bilans.length!==1?"s":"")+" enregistré"+(bilans.length!==1?"s":"")),
+      h("button",{onClick:exportData,style:{width:"100%",background:"linear-gradient(135deg,#2f7cf6,#1d4ea3)",border:"none",color:"#fff",borderRadius:10,padding:"13px",fontSize:12,fontWeight:900,cursor:"pointer",marginBottom:10,letterSpacing:"0.05em"}},"⬇ EXPORTER MES DONNÉES"),
+      h("div",{style:{position:"relative",marginBottom:10}},
+        h("div",{style:{width:"100%",background:"transparent",border:"1px solid "+G.goldDim,color:G.gold,borderRadius:10,padding:"11px 16px",fontSize:12,fontWeight:700,textAlign:"center",boxSizing:"border-box"}},"⬆ IMPORTER UN BACKUP"),
+        h("input",{type:"file",accept:".json",onChange:importData,style:{position:"absolute",inset:0,width:"100%",height:"100%",opacity:0,cursor:"pointer"}})
+      ),
+      h("div",{style:{fontSize:10,color:G.muted,textAlign:"center",marginBottom:14}},"⚠ Remplace toutes les données"),
+      h("button",{onClick:function(){
+        if(!confirm("Remettre à zéro toutes les données ?"))return;
+        ["bt_bilans","bt_objectif"].forEach(function(k){localStorage.removeItem(k);});
+        setBilans([]);lsSet("bt_bilans",[]);
+        setObj("recompo");lsSet("bt_objectif","recompo");
+        alert("Reset effectué. Historique vidé.");
+      },style:{width:"100%",background:"none",border:"1px solid #440000",color:G.red,borderRadius:10,padding:"10px",fontSize:11,fontWeight:700,cursor:"pointer"}},"🗑 REMETTRE À ZÉRO")
+    ),
+
+    h("div",{style:{fontSize:9,color:G.gold,fontFamily:"monospace",marginBottom:10,marginTop:20}},"PROTOCOLE DE MESURE"),
+    [
+      {t:"Même moment chaque semaine",d:"Matin à jeun, après les toilettes, avant de boire. Toujours le même jour."},
+      {t:"Tour de cou (Navy BF)",d:"Juste sous le larynx, ruban perpendiculaire au sol. Pas en dessous des épaules."},
+      {t:"Tour de taille (Navy BF)",d:"Au niveau du nombril, expiration normale. Ne rentre pas le ventre."},
+      {t:"Bras",d:"Bras détendu et pendant, à mi-hauteur entre le coude et l'épaule."},
+      {t:"Cuisses",d:"À mi-cuisse, debout, poids réparti sur les deux jambes."},
+      {t:"Navy BF : fiabilité",d:"±3% d'erreur vs DEXA. Très fiable pour suivre l'évolution dans le temps."}
+    ].map(function(c,i){
+      return h("div",{key:i,style:{display:"flex",gap:12,padding:"9px 0",borderBottom:"1px solid "+G.border}},
+        h("div",{style:{background:G.gold+"22",borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:900,color:G.gold,minWidth:24,textAlign:"center"}},i+1),
+        h("div",null,
+          h("div",{style:{fontSize:11,fontWeight:800,color:G.text,marginBottom:2}},c.t),
+          h("div",{style:{fontSize:10,color:G.muted,lineHeight:1.5}},c.d)
+        )
+      );
+    })
+  );
+}
+
+// ── APP PRINCIPALE ────────────────────────────────────────────────────────
+function BodyTracker(){
+  var st=useState("nouveau"),tab=st[0],setTab=st[1];
+  var sb=useState(function(){
+    var saved=lsGet("bt_bilans");
+    return (saved&&saved.length>0)?saved:[];
+  }),bilans=sb[0],setBilans=sb[1];
+  var so=useState(function(){
+    var saved=lsGet("bt_objectif");
+    var valid=["seche","recompo","masse"];
+    return (saved&&valid.indexOf(saved)>=0)?saved:"recompo";
+  }),obj=so[0],setObj=so[1];
+
+  var alerts=analyzeBB(bilans,obj);
+  var urgents=alerts.filter(function(a){return a.type==="danger";}).length;
+  var lastBilan=bilans.length>0?bilans.slice().sort(function(a,b){return b.date.localeCompare(a.date);})[0]:null;
+  var lastBF=lastBilan&&lastBilan.bf!=null?lastBilan.bf:null;
+
+  var tabs=[
+    {id:"nouveau",   label:"BILAN"},
+    {id:"analyse",   label:"ANALYSE",  badge:urgents>0?urgents:null},
+    {id:"historique",label:"ARCHIVE"},
+    {id:"compa",     label:"AVANT/APR"},
+    {id:"reglages",  label:"⚙"}
+  ];
+
+  return h("div",{style:{background:G.bg,minHeight:"100vh",color:G.text,fontFamily:"-apple-system,BlinkMacSystemFont,system-ui,sans-serif",maxWidth:480,margin:"0 auto"}},
+    h("div",{style:{background:G.bg,borderBottom:"1px solid "+G.border,padding:"12px 16px 10px",position:"sticky",top:0,zIndex:50}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+        h("div",{style:{display:"flex",alignItems:"center",gap:10}},
+          h("img",{src:"icon-192.png",style:{width:24,height:24,borderRadius:6}}),
+          h("div",{style:{background:"linear-gradient(135deg,#2f7cf6,#1d4ea3)",borderRadius:8,padding:"4px 9px",fontSize:11,fontWeight:900,letterSpacing:"0.08em",color:"#fff"}},"TATANKA"),
+          h("span",{style:{fontSize:16,fontWeight:900,letterSpacing:"-0.5px"}},"PROGRESS")
+        ),
+        h("div",{style:{display:"flex",gap:8,alignItems:"center"}},
+          lastBF!=null?h("span",{style:{fontSize:10,fontFamily:"monospace",fontWeight:900,color:getBFCat(lastBF).color}},lastBF,"%BF"):null,
+          PROFIL.trt?h("div",{style:{background:G.purple+"20",borderRadius:6,padding:"3px 7px",fontSize:9,color:G.purple,fontFamily:"monospace",fontWeight:900}},"TRT"):null,
+          urgents>0?h("span",{style:{fontSize:9,color:G.red,fontFamily:"monospace",fontWeight:900,background:G.red+"20",borderRadius:5,padding:"2px 6px"}},"⚠ "+urgents):null
+        )
+      )
+    ),
+    tab==="nouveau"   ?h(TabNouveauBilan,{bilans:bilans,setBilans:setBilans,objectif:obj}):null,
+    tab==="analyse"   ?h(TabAnalyse,     {bilans:bilans,objectif:obj}):null,
+    tab==="historique"?h(TabHistorique,  {bilans:bilans,setBilans:setBilans}):null,
+    tab==="compa"     ?h(TabComparaison, {bilans:bilans,obj:obj}):null,
+    tab==="reglages"  ?h(TabReglages,    {objectif:obj,setObjectif:setObj,bilans:bilans,setBilans:setBilans}):null,
+    h("div",{style:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:G.bg2,borderTop:"1px solid "+G.border,display:"flex"}},
+      tabs.map(function(t){
+        var a=tab===t.id;
+        return h("button",{key:t.id,onClick:function(){setTab(t.id);},
+          style:{flex:1,padding:"10px 0 12px",background:"none",border:"none",borderTop:"2px solid "+(a?G.gold:"transparent"),color:a?G.gold:G.muted,cursor:"pointer",fontSize:t.id==="reglages"?14:7,fontWeight:700,letterSpacing:"0.04em",fontFamily:"monospace",position:"relative"}},
+          t.label,
+          t.badge?h("div",{style:{position:"absolute",top:6,right:"50%",transform:"translateX(8px)",background:G.red,borderRadius:"50%",width:14,height:14,fontSize:8,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900}},t.badge):null
+        );
+      })
+    )
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(BodyTracker,null));
+
+if("serviceWorker" in navigator){
+  window.addEventListener("load",function(){
+    navigator.serviceWorker.register("sw.js").catch(function(){});
+  });
+}
+</script>
+</body>
+</html>
