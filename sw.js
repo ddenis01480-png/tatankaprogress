@@ -1,4 +1,4 @@
-const CACHE_NAME = "tatanka-progress-v1";
+const CACHE_NAME = "tatanka-progress-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -23,20 +23,19 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+// Network-first : toujours essayer la version la plus récente en premier,
+// on ne retombe sur le cache que si le réseau échoue (mode hors-ligne).
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const network = fetch(event.request)
-        .then((res) => {
-          if (res && res.status === 200) {
-            const copy = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          }
-          return res;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+    fetch(event.request)
+      .then((res) => {
+        if (res && res.status === 200) {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
