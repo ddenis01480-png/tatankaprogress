@@ -37,9 +37,10 @@
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 "use strict";
-var h=React.createElement,useState=React.useState;
+var h=React.createElement,useState=React.useState,useEffect=React.useEffect;
 
 // ── Profil utilisateur (éditable, persisté) ───────────────────────────────
 var PROFIL_DEFAUT={sexe:"homme",age:35,tailleCm:175,trt:false};
@@ -51,6 +52,43 @@ function saveProfil(p){PROFIL=Object.assign({},PROFIL,p);try{localStorage.setIte
 function sexeLabel(){return PROFIL.sexe==="femme"?"femme":"homme";}
 function ageTxt(){return (PROFIL.age||35)+" ans";}
 function trtSuffix(oui,non){return PROFIL.trt?oui:(non===undefined?"":non);}
+
+// ── Supabase (projet partagé avec Tatanka Nutrition) ──────────────────────
+var SUPABASE_URL="https://ogkrgsnnoebsvbgsngvm.supabase.co";
+var SUPABASE_KEY="sb_publishable_KvM3k3gwBAArOFyUEd1a7A_oY0RTIom";
+var supa=(window.supabase&&window.supabase.createClient)?window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY):null;
+
+function authSignUp(email,pass,cb){
+  if(!supa)return cb("Connexion indisponible");
+  supa.auth.signUp({email:email,password:pass}).then(function(res){cb(res.error?res.error.message:null);});
+}
+function authSignIn(email,pass,cb){
+  if(!supa)return cb("Connexion indisponible");
+  supa.auth.signInWithPassword({email:email,password:pass}).then(function(res){cb(res.error?res.error.message:null);});
+}
+function authSignOut(cb){if(supa)supa.auth.signOut().then(function(){cb&&cb();});}
+
+function cloudPullBilans(userId,cb){
+  if(!supa)return cb([]);
+  supa.from("progress_bilans").select("*").eq("user_id",userId).then(function(res){
+    if(res.error||!res.data)return cb([]);
+    cb(res.data.map(function(r){return {id:r.id,date:r.date,objectif:r.objectif,poids:r.poids,cou:r.cou,
+      taille:r.taille,hanches:r.hanches,bras:r.bras,cuisses:r.cuisses,poitrine:r.poitrine,
+      bf:r.bf,mm:r.mm,mg:r.mg,note:r.note};}));
+  });
+}
+function cloudPushBilan(userId,b){
+  if(!supa)return;
+  supa.from("progress_bilans").insert([{user_id:userId,date:b.date,objectif:b.objectif,poids:b.poids,cou:b.cou,
+    taille:b.taille,hanches:b.hanches,bras:b.bras,cuisses:b.cuisses,poitrine:b.poitrine,
+    bf:b.bf,mm:b.mm,mg:b.mg,note:b.note}]).then(function(){});
+}
+function cloudCheckPremium(userId,cb){
+  if(!supa)return cb(false);
+  supa.from("progress_premium").select("premium").eq("user_id",userId).maybeSingle().then(function(res){
+    cb(!!(res.data&&res.data.premium));
+  });
+}
 
 // ── Palette ──────────────────────────────────────────────────────────────
 var G={
@@ -468,6 +506,7 @@ function TabNouveauBilan(props){
     if(photos.profil)pSave(b.id,"profil",photos.profil);
     var updated=bilans.concat([b]);
     setBilans(updated);lsSet("bt_bilans",updated);
+    if(props.session)cloudPushBilan(props.session.user.id,b);
     setSaved(true);setForm(blank);setPhotos({face:null,dos:null,profil:null});
     setTimeout(function(){setSaved(false);},2500);
   }
@@ -814,6 +853,14 @@ function TabHistorique(props){
 // ── TAB COMPARAISON ──────────────────────────────────────────────────────
 function TabComparaison(props){
   var bilans=props.bilans,obj=props.obj||"recompo";
+
+  if(!props.premium) return h("div",{style:{padding:"60px 16px",textAlign:"center"}},
+    h("div",{style:{fontSize:40,marginBottom:16}},"🔒"),
+    h("div",{style:{fontSize:16,fontWeight:700,color:G.text}},"Fonction Premium"),
+    h("div",{style:{fontSize:12,color:G.muted,marginTop:8,marginBottom:20,lineHeight:1.6}},"La comparaison avant/après avec suivi de l'évolution est réservée aux membres Premium."),
+    h("div",{style:{fontSize:11,color:G.gold,fontWeight:800}},"Passe Premium dans l'onglet Réglages ⚙")
+  );
+
   var sorted=bilans.slice().sort(function(a,b){return a.date.localeCompare(b.date);});
   var sa=useState(sorted.length>0?sorted[0].id:null),aId=sa[0],setAId=sa[1];
   var sb=useState(sorted.length>1?sorted[sorted.length-1].id:null),bId=sb[0],setBId=sb[1];
@@ -894,8 +941,26 @@ function TabComparaison(props){
 // ── TAB RÉGLAGES ─────────────────────────────────────────────────────────
 function TabReglages(props){
   var obj=props.objectif,setObj=props.setObjectif,bilans=props.bilans,setBilans=props.setBilans;
+  var session=props.session,setSession=props.setSession,premium=props.premium;
   var stp=useState(0),ptick=stp[0],setPtick=stp[1];
   function updProfil(k,v){var p={};p[k]=v;saveProfil(p);setPtick(ptick+1);}
+
+  var sam=useState("signin"),authMode=sam[0],setAuthMode=sam[1];
+  var sae=useState(""),email=sae[0],setEmail=sae[1];
+  var sap=useState(""),pass=sap[0],setPass=sap[1];
+  var saerr=useState(""),authErr=saerr[0],setAuthErr=saerr[1];
+  var saload=useState(false),authLoading=saload[0],setAuthLoading=saload[1];
+
+  function doAuth(){
+    if(!email||!pass){setAuthErr("Email et mot de passe requis.");return;}
+    setAuthLoading(true);setAuthErr("");
+    var fn=authMode==="signin"?authSignIn:authSignUp;
+    fn(email,pass,function(err){
+      setAuthLoading(false);
+      if(err){setAuthErr(err);return;}
+      if(authMode==="signup")alert("Compte créé ! Vérifie ton email si une confirmation est demandée, puis connecte-toi.");
+    });
+  }
 
   function exportData(){
     var data={version:2,exportDate:todayStr(),profil:PROFIL,bilans:bilans,objectif:obj};
@@ -925,6 +990,43 @@ function TabReglages(props){
     h("div",{style:{marginBottom:18}},
       h(Lbl,null,"CONFIGURATION"),
       h("h2",{style:{margin:"3px 0 0",fontSize:22,fontWeight:900,color:G.gold}},"RÉGLAGES")
+    ),
+
+    // Compte — auth / sync cloud
+    h(Card,{style:{background:G.blue+"0d",border:"1px solid "+G.blue+"33",marginBottom:16}},
+      h(Lbl,null,"MON COMPTE · SYNC CLOUD"),
+      session?
+        h("div",null,
+          h("div",{style:{fontSize:12,color:G.text,marginBottom:10}},"Connecté : "+session.user.email),
+          h("button",{onClick:function(){authSignOut(function(){setSession(null);});},
+            style:{width:"100%",background:"none",border:"1px solid "+G.border,color:G.muted,borderRadius:8,padding:"9px 0",fontSize:11,fontWeight:700,cursor:"pointer"}},"SE DÉCONNECTER")
+        ):
+        h("div",null,
+          h("div",{style:{fontSize:10,color:G.muted,marginBottom:10,lineHeight:1.5}},"Connecte-toi pour sauvegarder tes bilans dans le cloud et les retrouver sur un autre appareil."),
+          h("input",{type:"email",placeholder:"Email",value:email,onChange:function(e){setEmail(e.target.value);},
+            style:{width:"100%",background:G.bg3,border:"1px solid "+G.border,color:G.text,borderRadius:8,padding:"9px 10px",fontSize:12,marginBottom:8,boxSizing:"border-box"}}),
+          h("input",{type:"password",placeholder:"Mot de passe",value:pass,onChange:function(e){setPass(e.target.value);},
+            style:{width:"100%",background:G.bg3,border:"1px solid "+G.border,color:G.text,borderRadius:8,padding:"9px 10px",fontSize:12,marginBottom:8,boxSizing:"border-box"}}),
+          authErr?h("div",{style:{fontSize:10,color:G.red,marginBottom:8}},authErr):null,
+          h("button",{onClick:doAuth,disabled:authLoading,
+            style:{width:"100%",background:G.blue,border:"none",color:"#fff",borderRadius:8,padding:"10px 0",fontSize:12,fontWeight:800,cursor:"pointer",marginBottom:8}},
+            authLoading?"...":(authMode==="signin"?"SE CONNECTER":"CRÉER MON COMPTE")),
+          h("div",{style:{textAlign:"center",fontSize:10,color:G.muted,cursor:"pointer"},
+            onClick:function(){setAuthMode(authMode==="signin"?"signup":"signin");setAuthErr("");}},
+            authMode==="signin"?"Pas de compte ? Créer un compte":"Déjà un compte ? Se connecter")
+        )
+    ),
+
+    // Premium
+    h(Card,{style:{background:premium?G.green+"0d":G.gold+"0d",border:"1px solid "+(premium?G.green:G.gold)+"33",marginBottom:16}},
+      h(Lbl,null,"ABONNEMENT"),
+      premium?
+        h("div",{style:{fontSize:13,fontWeight:800,color:G.green}},"✓ Premium actif — merci !"):
+        h("div",null,
+          h("div",{style:{fontSize:11,color:G.muted,marginBottom:10,lineHeight:1.6}},"Débloque la comparaison avant/après, les graphiques avancés et les statistiques poussées."),
+          h("div",{style:{fontSize:16,fontWeight:900,color:G.gold,marginBottom:10}},"4,99€/mois · 39,99€/an"),
+          h("div",{style:{fontSize:10,color:G.muted}},!session?"Connecte-toi d'abord ci-dessus pour activer le Premium.":"Lien de paiement à venir.")
+        )
     ),
 
     // Profil — éditable
@@ -1024,6 +1126,28 @@ function BodyTracker(){
     var valid=["seche","recompo","masse"];
     return (saved&&valid.indexOf(saved)>=0)?saved:"recompo";
   }),obj=so[0],setObj=so[1];
+  var ss=useState(null),session=ss[0],setSession=ss[1];
+  var sp=useState(false),premium=sp[0],setPremium=sp[1];
+
+  function handleSession(s,localBilans){
+    setSession(s);
+    if(!s){setPremium(false);return;}
+    cloudCheckPremium(s.user.id,setPremium);
+    cloudPullBilans(s.user.id,function(cloudList){
+      if(cloudList.length>0){setBilans(cloudList);lsSet("bt_bilans",cloudList);}
+      else if(localBilans&&localBilans.length>0){localBilans.forEach(function(b){cloudPushBilan(s.user.id,b);});}
+    });
+  }
+
+  useEffect(function(){
+    if(!supa)return;
+    supa.auth.getSession().then(function(res){
+      var s=res.data&&res.data.session;
+      if(s)handleSession(s,bilans);
+    });
+    var sub=supa.auth.onAuthStateChange(function(evt,s){handleSession(s,bilans);});
+    return function(){try{sub.data.subscription.unsubscribe();}catch(e){}};
+  },[]);
 
   var alerts=analyzeBB(bilans,obj);
   var urgents=alerts.filter(function(a){return a.type==="danger";}).length;
@@ -1053,11 +1177,11 @@ function BodyTracker(){
         )
       )
     ),
-    tab==="nouveau"   ?h(TabNouveauBilan,{bilans:bilans,setBilans:setBilans,objectif:obj}):null,
+    tab==="nouveau"   ?h(TabNouveauBilan,{bilans:bilans,setBilans:setBilans,objectif:obj,session:session}):null,
     tab==="analyse"   ?h(TabAnalyse,     {bilans:bilans,objectif:obj}):null,
     tab==="historique"?h(TabHistorique,  {bilans:bilans,setBilans:setBilans}):null,
-    tab==="compa"     ?h(TabComparaison, {bilans:bilans,obj:obj}):null,
-    tab==="reglages"  ?h(TabReglages,    {objectif:obj,setObjectif:setObj,bilans:bilans,setBilans:setBilans}):null,
+    tab==="compa"     ?h(TabComparaison, {bilans:bilans,obj:obj,premium:premium}):null,
+    tab==="reglages"  ?h(TabReglages,    {objectif:obj,setObjectif:setObj,bilans:bilans,setBilans:setBilans,session:session,setSession:setSession,premium:premium}):null,
     h("div",{style:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:G.bg2,borderTop:"1px solid "+G.border,display:"flex"}},
       tabs.map(function(t){
         var a=tab===t.id;
