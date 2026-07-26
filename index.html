@@ -24,6 +24,17 @@
 </head>
 <body>
 <div id="root"></div>
+<div id="cross-promo" style="display:none;position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:1500;background:#111;border:1px solid #2ecc7144;border-radius:10px;padding:10px 14px;max-width:320px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.5)">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+    <div style="font-size:11px;color:#aaa;line-height:1.5">
+      D&#233;couvrez aussi<br>
+      <a href="https://tatakanutrition.vercel.app" target="_blank" style="color:#2ecc71;font-weight:700;text-decoration:none">&#x1F96C; Tatanka Nutrition</a>
+      &nbsp;&#183;&nbsp;
+      <a href="https://tatankatraining.vercel.app" target="_blank" style="color:#2ecc71;font-weight:700;text-decoration:none">&#x1F3CB; Tatanka Training</a>
+    </div>
+    <button onclick="document.getElementById('cross-promo').style.display='none';localStorage.setItem('cp_progress','1')" style="background:none;border:none;color:#444;font-size:18px;cursor:pointer;padding:0;line-height:1;flex-shrink:0">&#215;</button>
+  </div>
+</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script>
@@ -1061,6 +1072,14 @@ function BodyTracker(){
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(BodyTracker,null));
+
+// Cross-promo — afficher une fois
+if(!localStorage.getItem('cp_progress')){
+  setTimeout(function(){
+    var cp=document.getElementById('cross-promo');
+    if(cp)cp.style.display='block';
+  }, 3000);
+}
 
 if("serviceWorker" in navigator){
   window.addEventListener("load",function(){
