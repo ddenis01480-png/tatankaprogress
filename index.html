@@ -992,29 +992,14 @@ function TabReglages(props){
       h("h2",{style:{margin:"3px 0 0",fontSize:22,fontWeight:900,color:G.gold}},"RÉGLAGES")
     ),
 
-    // Compte — auth / sync cloud
+    // Compte — sync cloud (connexion géré par le mur d'authentification)
     h(Card,{style:{background:G.blue+"0d",border:"1px solid "+G.blue+"33",marginBottom:16}},
       h(Lbl,null,"MON COMPTE · SYNC CLOUD"),
-      session?
-        h("div",null,
-          h("div",{style:{fontSize:12,color:G.text,marginBottom:10}},"Connecté : "+session.user.email),
-          h("button",{onClick:function(){authSignOut(function(){setSession(null);});},
-            style:{width:"100%",background:"none",border:"1px solid "+G.border,color:G.muted,borderRadius:8,padding:"9px 0",fontSize:11,fontWeight:700,cursor:"pointer"}},"SE DÉCONNECTER")
-        ):
-        h("div",null,
-          h("div",{style:{fontSize:10,color:G.muted,marginBottom:10,lineHeight:1.5}},"Connecte-toi pour sauvegarder tes bilans dans le cloud et les retrouver sur un autre appareil."),
-          h("input",{type:"email",placeholder:"Email",value:email,onChange:function(e){setEmail(e.target.value);},
-            style:{width:"100%",background:G.bg3,border:"1px solid "+G.border,color:G.text,borderRadius:8,padding:"9px 10px",fontSize:12,marginBottom:8,boxSizing:"border-box"}}),
-          h("input",{type:"password",placeholder:"Mot de passe",value:pass,onChange:function(e){setPass(e.target.value);},
-            style:{width:"100%",background:G.bg3,border:"1px solid "+G.border,color:G.text,borderRadius:8,padding:"9px 10px",fontSize:12,marginBottom:8,boxSizing:"border-box"}}),
-          authErr?h("div",{style:{fontSize:10,color:G.red,marginBottom:8}},authErr):null,
-          h("button",{onClick:doAuth,disabled:authLoading,
-            style:{width:"100%",background:G.blue,border:"none",color:"#fff",borderRadius:8,padding:"10px 0",fontSize:12,fontWeight:800,cursor:"pointer",marginBottom:8}},
-            authLoading?"...":(authMode==="signin"?"SE CONNECTER":"CRÉER MON COMPTE")),
-          h("div",{style:{textAlign:"center",fontSize:10,color:G.muted,cursor:"pointer"},
-            onClick:function(){setAuthMode(authMode==="signin"?"signup":"signin");setAuthErr("");}},
-            authMode==="signin"?"Pas de compte ? Créer un compte":"Déjà un compte ? Se connecter")
-        )
+      h("div",null,
+        h("div",{style:{fontSize:12,color:G.text,marginBottom:10}},"Connecté : "+(session?session.user.email:"")),
+        h("button",{onClick:function(){authSignOut(function(){setSession(null);});},
+          style:{width:"100%",background:"none",border:"1px solid "+G.border,color:G.muted,borderRadius:8,padding:"9px 0",fontSize:11,fontWeight:700,cursor:"pointer"}},"SE DÉCONNECTER")
+      )
     ),
 
     // Premium
@@ -1025,7 +1010,7 @@ function TabReglages(props){
         h("div",null,
           h("div",{style:{fontSize:11,color:G.muted,marginBottom:10,lineHeight:1.6}},"Débloque la comparaison avant/après, les graphiques avancés et les statistiques poussées."),
           h("div",{style:{fontSize:16,fontWeight:900,color:G.gold,marginBottom:10}},"4,99€/mois · 39,99€/an"),
-          h("div",{style:{fontSize:10,color:G.muted}},!session?"Connecte-toi d'abord ci-dessus pour activer le Premium.":"Lien de paiement à venir.")
+          h("div",{style:{fontSize:10,color:G.muted}},"Lien de paiement à venir.")
         )
     ),
 
@@ -1115,6 +1100,64 @@ function TabReglages(props){
 }
 
 // ── APP PRINCIPALE ────────────────────────────────────────────────────────
+function AuthWall(props){
+  var sam=useState("signin"),mode=sam[0],setMode=sam[1];
+  var sae=useState(""),email=sae[0],setEmail=sae[1];
+  var sap=useState(""),pass=sap[0],setPass=sap[1];
+  var saerr=useState(""),err=saerr[0],setErr=saerr[1];
+  var sal=useState(false),loading=sal[0],setLoading=sal[1];
+  var sao=useState(""),okMsg=sao[0],setOkMsg=sao[1];
+
+  function submit(){
+    if(!email||!pass){setErr("Email et mot de passe requis.");return;}
+    setErr("");setOkMsg("");setLoading(true);
+    if(mode==="signin"){
+      authSignIn(email,pass,function(e){
+        setLoading(false);
+        if(e){setErr(e);return;}
+        if(supa)supa.auth.getSession().then(function(res){var s=res.data&&res.data.session;if(s)props.onAuthed(s);});
+      });
+    }else{
+      authSignUp(email,pass,function(e){
+        setLoading(false);
+        if(e){setErr(e);return;}
+        setOkMsg("Compte créé ! Vérifie ton email si une confirmation est demandée, sinon connecte-toi directement.");
+        setMode("signin");
+      });
+    }
+  }
+
+  return h("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+    h("div",{style:{width:"100%",maxWidth:380}},
+      h("div",{style:{textAlign:"center",marginBottom:28}},
+        h("img",{src:"icon-192.png",style:{width:90,height:90,borderRadius:20,marginBottom:10}}),
+        h("div",{style:{fontSize:20,fontWeight:900,letterSpacing:"0.06em",color:G.text}},"TATANKA ",h("span",{style:{color:G.blue}},"PROGRESS"))
+      ),
+      h("div",{style:{display:"flex",border:"1px solid "+G.border,borderRadius:8,overflow:"hidden",marginBottom:16}},
+        h("button",{onClick:function(){setMode("signin");setErr("");},
+          style:{flex:1,padding:10,background:mode==="signin"?G.blue:G.bg3,border:"none",color:mode==="signin"?"#fff":G.muted,fontWeight:900,fontSize:13,cursor:"pointer"}},"CONNEXION"),
+        h("button",{onClick:function(){setMode("signup");setErr("");},
+          style:{flex:1,padding:10,background:mode==="signup"?G.blue:G.bg3,border:"none",color:mode==="signup"?"#fff":G.muted,fontWeight:900,fontSize:13,cursor:"pointer"}},"INSCRIPTION")
+      ),
+      h("div",{style:{marginBottom:12}},
+        h("label",{style:{fontSize:11,color:G.muted,letterSpacing:"0.06em",display:"block",marginBottom:4}},"EMAIL"),
+        h("input",{type:"email",placeholder:"ton@email.com",value:email,onChange:function(e){setEmail(e.target.value);},
+          style:{width:"100%",background:G.bg3,border:"1px solid "+G.border,color:G.text,borderRadius:8,padding:"11px 12px",fontSize:14,boxSizing:"border-box"}})
+      ),
+      h("div",{style:{marginBottom:16}},
+        h("label",{style:{fontSize:11,color:G.muted,letterSpacing:"0.06em",display:"block",marginBottom:4}},"MOT DE PASSE"),
+        h("input",{type:"password",placeholder:"••••••••",value:pass,onChange:function(e){setPass(e.target.value);},
+          style:{width:"100%",background:G.bg3,border:"1px solid "+G.border,color:G.text,borderRadius:8,padding:"11px 12px",fontSize:14,boxSizing:"border-box"}})
+      ),
+      err?h("div",{style:{color:G.red,fontSize:12,marginBottom:10,textAlign:"center"}},err):null,
+      okMsg?h("div",{style:{color:G.green,fontSize:12,marginBottom:10,textAlign:"center"}},okMsg):null,
+      h("button",{onClick:submit,disabled:loading,
+        style:{width:"100%",fontSize:14,padding:13,background:G.blue,color:"#fff",border:"none",borderRadius:8,fontWeight:900,cursor:"pointer"}},
+        loading?"...":(mode==="signin"?"SE CONNECTER":"CRÉER MON COMPTE"))
+    )
+  );
+}
+
 function BodyTracker(){
   var st=useState("nouveau"),tab=st[0],setTab=st[1];
   var sb=useState(function(){
@@ -1128,9 +1171,10 @@ function BodyTracker(){
   }),obj=so[0],setObj=so[1];
   var ss=useState(null),session=ss[0],setSession=ss[1];
   var sp=useState(false),premium=sp[0],setPremium=sp[1];
+  var sac=useState(false),authChecked=sac[0],setAuthChecked=sac[1];
 
   function handleSession(s,localBilans){
-    setSession(s);
+    setSession(s);setAuthChecked(true);
     if(!s){setPremium(false);return;}
     cloudCheckPremium(s.user.id,setPremium);
     cloudPullBilans(s.user.id,function(cloudList){
@@ -1140,11 +1184,11 @@ function BodyTracker(){
   }
 
   useEffect(function(){
-    if(!supa)return;
+    if(!supa){setAuthChecked(true);return;}
     supa.auth.getSession().then(function(res){
       var s=res.data&&res.data.session;
-      if(s)handleSession(s,bilans);
-    });
+      if(s)handleSession(s,bilans);else setAuthChecked(true);
+    }).catch(function(){setAuthChecked(true);});
     var sub=supa.auth.onAuthStateChange(function(evt,s){handleSession(s,bilans);});
     return function(){try{sub.data.subscription.unsubscribe();}catch(e){}};
   },[]);
@@ -1161,6 +1205,12 @@ function BodyTracker(){
     {id:"compa",     label:"AVANT/APR"},
     {id:"reglages",  label:"⚙"}
   ];
+
+  if(!authChecked) return h("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}},
+    h("img",{src:"icon-192.png",style:{width:64,height:64,borderRadius:16,opacity:0.6}})
+  );
+
+  if(!session) return h(AuthWall,{onAuthed:function(s){handleSession(s,bilans);}});
 
   return h("div",{style:{background:G.bg,minHeight:"100vh",color:G.text,fontFamily:"-apple-system,BlinkMacSystemFont,system-ui,sans-serif",maxWidth:480,margin:"0 auto"}},
     h("div",{style:{background:G.bg,borderBottom:"1px solid "+G.border,padding:"12px 16px 10px",position:"sticky",top:0,zIndex:50}},
