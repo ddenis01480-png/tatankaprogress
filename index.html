@@ -84,10 +84,14 @@ function cloudPushBilan(userId,b){
     taille:b.taille,hanches:b.hanches,bras:b.bras,cuisses:b.cuisses,poitrine:b.poitrine,
     bf:b.bf,mm:b.mm,mg:b.mg,note:b.note}]).then(function(){});
 }
-function cloudCheckPremium(userId,cb){
+function cloudCheckPremium(userId,email,cb){
   if(!supa)return cb(false);
-  supa.from("progress_premium").select("premium").eq("user_id",userId).maybeSingle().then(function(res){
-    cb(!!(res.data&&res.data.premium));
+  supa.from("profiles").select("premium_progress,pack,blocked").eq("id",userId).single().then(function(res){
+    if(!res.data){
+      supa.from("profiles").insert({id:userId,email:email,premium_progress:false,pack:false}).then(function(){});
+      cb(false);return;
+    }
+    cb(!res.data.blocked&&!!(res.data.premium_progress||res.data.pack));
   });
 }
 
@@ -1177,7 +1181,7 @@ function BodyTracker(){
   function handleSession(s,localBilans){
     setSession(s);setAuthChecked(true);
     if(!s){setPremium(false);return;}
-    cloudCheckPremium(s.user.id,setPremium);
+    cloudCheckPremium(s.user.id,s.user.email,setPremium);
     cloudPullBilans(s.user.id,function(cloudList){
       if(cloudList.length>0){setBilans(cloudList);lsSet("bt_bilans",cloudList);}
       else if(localBilans&&localBilans.length>0){localBilans.forEach(function(b){cloudPushBilan(s.user.id,b);});}
