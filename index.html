@@ -57,6 +57,20 @@ function trtSuffix(oui,non){return PROFIL.trt?oui:(non===undefined?"":non);}
 // ── Supabase (projet partagé avec Tatanka Nutrition) ──────────────────────
 var SUPABASE_URL="https://ogkrgsnnoebsvbgsngvm.supabase.co";
 var SUPABASE_KEY="sb_publishable_KvM3k3gwBAArOFyUEd1a7A_oY0RTIom";
+var STRIPE_MONTHLY="https://buy.stripe.com/test_4gM00lglM3wo6H1ehCcQU05";
+var STRIPE_YEARLY="https://buy.stripe.com/test_aFaeVfb1sff67L51uQcQU06";
+
+function startCheckout(plan,session){
+  if(!session){alert("Connecte-toi d'abord.");return;}
+  var url=plan==="monthly"?STRIPE_MONTHLY:STRIPE_YEARLY;
+  url+="?prefilled_email="+encodeURIComponent(session.user.email)+"&client_reference_id="+session.user.id;
+  window.location.href=url;
+}
+async function activateProgressPremium(userId){
+  if(!supa)return;
+  await supa.from("profiles").update({premium_progress:true}).eq("id",userId);
+  window.history.replaceState({},"",window.location.pathname);
+}
 var supa=(window.supabase&&window.supabase.createClient)?window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY):null;
 
 function authSignUp(email,pass,cb){
@@ -1015,7 +1029,12 @@ function TabReglages(props){
         h("div",null,
           h("div",{style:{fontSize:11,color:G.muted,marginBottom:10,lineHeight:1.6}},"Débloque la comparaison avant/après, les graphiques avancés et les statistiques poussées."),
           h("div",{style:{fontSize:16,fontWeight:900,color:G.gold,marginBottom:10}},"4,99€/mois · 39,99€/an"),
-          h("div",{style:{fontSize:10,color:G.muted}},"Lien de paiement à venir.")
+          h("div",{style:{display:"flex",gap:8}},
+            h("button",{onClick:function(){startCheckout("monthly",session);},
+              style:{flex:1,background:G.gold,border:"none",color:"#fff",borderRadius:8,padding:"11px 0",fontSize:12,fontWeight:900,cursor:"pointer"}},"4,99€/mois"),
+            h("button",{onClick:function(){startCheckout("yearly",session);},
+              style:{flex:1,background:G.gold,border:"none",color:"#fff",borderRadius:8,padding:"11px 0",fontSize:12,fontWeight:900,cursor:"pointer"}},"39,99€/an")
+          )
         )
     ),
 
@@ -1181,7 +1200,11 @@ function BodyTracker(){
   function handleSession(s,localBilans){
     setSession(s);setAuthChecked(true);
     if(!s){setPremium(false);return;}
-    cloudCheckPremium(s.user.id,s.user.email,setPremium);
+    if(window.location.search.indexOf("payment=success")>=0){
+      activateProgressPremium(s.user.id).then(function(){cloudCheckPremium(s.user.id,s.user.email,setPremium);});
+    }else{
+      cloudCheckPremium(s.user.id,s.user.email,setPremium);
+    }
     cloudPullBilans(s.user.id,function(cloudList){
       if(cloudList.length>0){setBilans(cloudList);lsSet("bt_bilans",cloudList);}
       else if(localBilans&&localBilans.length>0){localBilans.forEach(function(b){cloudPushBilan(s.user.id,b);});}
