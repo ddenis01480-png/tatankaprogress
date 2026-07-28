@@ -59,10 +59,18 @@ var SUPABASE_URL="https://ogkrgsnnoebsvbgsngvm.supabase.co";
 var SUPABASE_KEY="sb_publishable_KvM3k3gwBAArOFyUEd1a7A_oY0RTIom";
 var STRIPE_MONTHLY="https://buy.stripe.com/test_4gM00lglM3wo6H1ehCcQU05";
 var STRIPE_YEARLY="https://buy.stripe.com/test_aFaeVfb1sff67L51uQcQU06";
+var PACK_MONTHLY="https://buy.stripe.com/test_aFa3cxglMgja9TdddycQU07";
+var PACK_YEARLY="https://buy.stripe.com/test_aFafZj5H81og5CX8XicQU08";
 
 function startCheckout(plan,session){
   if(!session){alert("Connecte-toi d'abord.");return;}
   var url=plan==="monthly"?STRIPE_MONTHLY:STRIPE_YEARLY;
+  url+="?prefilled_email="+encodeURIComponent(session.user.email)+"&client_reference_id="+session.user.id;
+  window.location.href=url;
+}
+function startPackCheckout(plan,session){
+  if(!session){alert("Connecte-toi d'abord.");return;}
+  var url=plan==="monthly"?PACK_MONTHLY:PACK_YEARLY;
   url+="?prefilled_email="+encodeURIComponent(session.user.email)+"&client_reference_id="+session.user.id;
   window.location.href=url;
 }
@@ -1029,11 +1037,14 @@ function TabReglages(props){
         h("div",null,
           h("div",{style:{fontSize:11,color:G.muted,marginBottom:10,lineHeight:1.6}},"Débloque la comparaison avant/après, les graphiques avancés et les statistiques poussées."),
           h("div",{style:{fontSize:16,fontWeight:900,color:G.gold,marginBottom:10}},"4,99€/mois · 39,99€/an"),
-          h("div",{style:{display:"flex",gap:8}},
+          h("div",{style:{display:"flex",gap:8,marginBottom:12}},
             h("button",{onClick:function(){startCheckout("monthly",session);},
               style:{flex:1,background:G.gold,border:"none",color:"#fff",borderRadius:8,padding:"11px 0",fontSize:12,fontWeight:900,cursor:"pointer"}},"4,99€/mois"),
             h("button",{onClick:function(){startCheckout("yearly",session);},
               style:{flex:1,background:G.gold,border:"none",color:"#fff",borderRadius:8,padding:"11px 0",fontSize:12,fontWeight:900,cursor:"pointer"}},"39,99€/an")
+          ),
+          h("div",{style:{textAlign:"center",fontSize:10,color:G.muted}},"ou ",
+            h("span",{onClick:function(){startPackCheckout("monthly",session);},style:{color:"#ff4c00",fontWeight:800,cursor:"pointer",textDecoration:"underline"}},"débloquer les 3 apps (Pack 9,99€/mois)")
           )
         )
     ),
