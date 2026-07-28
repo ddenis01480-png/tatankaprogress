@@ -107,13 +107,14 @@ function cloudPushBilan(userId,b){
     bf:b.bf,mm:b.mm,mg:b.mg,note:b.note}]).then(function(){});
 }
 function cloudCheckPremium(userId,email,cb){
-  if(!supa)return cb(false);
+  if(!supa)return cb(false,false);
   supa.from("profiles").select("premium_progress,pack,blocked").eq("id",userId).single().then(function(res){
     if(!res.data){
       supa.from("profiles").insert({id:userId,email:email,premium_progress:false,pack:false}).then(function(){});
-      cb(false);return;
+      cb(false,false);return;
     }
-    cb(!res.data.blocked&&!!(res.data.premium_progress||res.data.pack));
+    var pack=!!res.data.pack;
+    cb(!res.data.blocked&&!!(res.data.premium_progress||pack),pack);
   });
 }
 
@@ -968,7 +969,7 @@ function TabComparaison(props){
 // ── TAB RÉGLAGES ─────────────────────────────────────────────────────────
 function TabReglages(props){
   var obj=props.objectif,setObj=props.setObjectif,bilans=props.bilans,setBilans=props.setBilans;
-  var session=props.session,setSession=props.setSession,premium=props.premium;
+  var session=props.session,setSession=props.setSession,premium=props.premium,hasPack=props.hasPack;
   var stp=useState(0),ptick=stp[0],setPtick=stp[1];
   function updProfil(k,v){var p={};p[k]=v;saveProfil(p);setPtick(ptick+1);}
 
@@ -1030,10 +1031,18 @@ function TabReglages(props){
     ),
 
     // Premium
-    h(Card,{style:{background:premium?G.green+"0d":G.gold+"0d",border:"1px solid "+(premium?G.green:G.gold)+"33",marginBottom:16}},
+    h(Card,{style:{background:hasPack?G.green+"0d":(premium?G.green+"0d":G.gold+"0d"),border:"1px solid "+(hasPack||premium?G.green:G.gold)+"33",marginBottom:16}},
       h(Lbl,null,"ABONNEMENT"),
+      hasPack?
+        h("div",{style:{fontSize:13,fontWeight:800,color:G.green}},"✓ Pack Tatanka actif — les 3 apps sont débloquées"):
       premium?
-        h("div",{style:{fontSize:13,fontWeight:800,color:G.green}},"✓ Premium actif — merci !"):
+        h("div",null,
+          h("div",{style:{fontSize:13,fontWeight:800,color:G.green,marginBottom:10}},"✓ Premium actif sur Progress"),
+          h("div",{style:{fontSize:10,color:G.muted,marginBottom:8}},"Débloque aussi Nutrition + Training avec le Pack :"),
+          h("div",{style:{textAlign:"center"}},
+            h("span",{onClick:function(){startPackCheckout("monthly",session);},style:{color:"#ff4c00",fontWeight:800,cursor:"pointer",textDecoration:"underline",fontSize:12}},"Passer au Pack (9,99€/mois)")
+          )
+        ):
         h("div",null,
           h("div",{style:{fontSize:11,color:G.muted,marginBottom:10,lineHeight:1.6}},"Débloque la comparaison avant/après, les graphiques avancés et les statistiques poussées."),
           h("div",{style:{fontSize:16,fontWeight:900,color:G.gold,marginBottom:10}},"4,99€/mois · 39,99€/an"),
@@ -1206,15 +1215,17 @@ function BodyTracker(){
   }),obj=so[0],setObj=so[1];
   var ss=useState(null),session=ss[0],setSession=ss[1];
   var sp=useState(false),premium=sp[0],setPremium=sp[1];
+  var shp=useState(false),hasPack=shp[0],setHasPack=shp[1];
   var sac=useState(false),authChecked=sac[0],setAuthChecked=sac[1];
 
   function handleSession(s,localBilans){
     setSession(s);setAuthChecked(true);
-    if(!s){setPremium(false);return;}
+    if(!s){setPremium(false);setHasPack(false);return;}
+    function onPremiumResult(isPrem,pack){setPremium(isPrem);setHasPack(pack);}
     if(window.location.search.indexOf("payment=success")>=0){
-      activateProgressPremium(s.user.id).then(function(){cloudCheckPremium(s.user.id,s.user.email,setPremium);});
+      activateProgressPremium(s.user.id).then(function(){cloudCheckPremium(s.user.id,s.user.email,onPremiumResult);});
     }else{
-      cloudCheckPremium(s.user.id,s.user.email,setPremium);
+      cloudCheckPremium(s.user.id,s.user.email,onPremiumResult);
     }
     cloudPullBilans(s.user.id,function(cloudList){
       if(cloudList.length>0){setBilans(cloudList);lsSet("bt_bilans",cloudList);}
@@ -1270,7 +1281,7 @@ function BodyTracker(){
     tab==="analyse"   ?h(TabAnalyse,     {bilans:bilans,objectif:obj}):null,
     tab==="historique"?h(TabHistorique,  {bilans:bilans,setBilans:setBilans}):null,
     tab==="compa"     ?h(TabComparaison, {bilans:bilans,obj:obj,premium:premium}):null,
-    tab==="reglages"  ?h(TabReglages,    {objectif:obj,setObjectif:setObj,bilans:bilans,setBilans:setBilans,session:session,setSession:setSession,premium:premium}):null,
+    tab==="reglages"  ?h(TabReglages,    {objectif:obj,setObjectif:setObj,bilans:bilans,setBilans:setBilans,session:session,setSession:setSession,premium:premium,hasPack:hasPack}):null,
     h("div",{style:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:G.bg2,borderTop:"1px solid "+G.border,display:"flex"}},
       tabs.map(function(t){
         var a=tab===t.id;
