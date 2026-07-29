@@ -476,11 +476,55 @@ function BFGauge(props){
 }
 
 // ── TAB NOUVEAU BILAN ────────────────────────────────────────────────────
+// ── TAB BILAN (résumé + bouton Nouveau bilan) ─────────────────────────────
+function TabBilan(props){
+  var bilans=props.bilans,setBilans=props.setBilans,obj=props.objectif,session=props.session;
+  var sf=useState(false),showForm=sf[0],setShowForm=sf[1];
+
+  if(showForm){
+    return h("div",null,
+      h("div",{style:{padding:"14px 16px 0"}},
+        h("button",{onClick:function(){setShowForm(false);},
+          style:{background:"none",border:"none",color:G.gold,fontSize:13,fontWeight:800,cursor:"pointer",padding:0,marginBottom:2}},"← Retour")
+      ),
+      h(TabNouveauBilan,{bilans:bilans,setBilans:setBilans,objectif:obj,session:session,onSaved:function(){setShowForm(false);}})
+    );
+  }
+
+  var sorted=bilans.slice().sort(function(a,b){return b.date.localeCompare(a.date);});
+  var last=sorted.length>0?sorted[0]:null;
+
+  return h("div",{style:{padding:"16px 16px 90px"}},
+    h("div",{style:{marginBottom:18}},
+      h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em"}},"BILAN"),
+      h("h2",{style:{margin:"3px 0 0",fontSize:22,fontWeight:900,color:G.gold}},last?fmtD(last.date):"Aucun bilan")
+    ),
+    last?h(Card,null,
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+        MESURES.filter(function(m){return last[m.key]!=null;}).map(function(m){
+          return h(SBox,{key:m.key,label:m.label,value:last[m.key],unit:m.unit,color:G.gold});
+        })
+      )
+    ):h(Card,null,h("div",{style:{fontSize:12,color:G.muted,textAlign:"center",padding:"10px 0"}},"Aucun bilan enregistré pour l'instant.")),
+    h("button",{onClick:function(){setShowForm(true);},
+      style:{width:"100%",marginTop:16,background:"linear-gradient(135deg,"+G.gold+","+G.goldDim+")",border:"none",color:"#fff",fontWeight:900,fontSize:15,padding:16,borderRadius:14,cursor:"pointer"}},
+      "➕ Nouveau bilan")
+  );
+}
+
 function TabNouveauBilan(props){
   var bilans=props.bilans,setBilans=props.setBilans,obj=props.objectif;
   var sorted=bilans.slice().sort(function(a,b){return a.date.localeCompare(b.date);});
   var last=sorted.length>0?sorted[sorted.length-1]:null;
-  var blank={date:todayStr(),poids:"",cou:"",taille:"",bras:"",cuisses:"",poitrine:"",note:""};
+  var blank={date:todayStr(),
+    poids:last&&last.poids!=null?String(last.poids):"",
+    cou:last&&last.cou!=null?String(last.cou):"",
+    taille:last&&last.taille!=null?String(last.taille):"",
+    hanches:last&&last.hanches!=null?String(last.hanches):"",
+    bras:last&&last.bras!=null?String(last.bras):"",
+    cuisses:last&&last.cuisses!=null?String(last.cuisses):"",
+    poitrine:last&&last.poitrine!=null?String(last.poitrine):"",
+    note:""};
 
   var sf=useState(blank),form=sf[0],setForm=sf[1];
   var sp=useState({face:null,dos:null,profil:null}),photos=sp[0],setPhotos=sp[1];
@@ -537,6 +581,7 @@ function TabNouveauBilan(props){
     if(props.session)cloudPushBilan(props.session.user.id,b);
     setSaved(true);setForm(blank);setPhotos({face:null,dos:null,profil:null});
     setTimeout(function(){setSaved(false);},2500);
+    if(props.onSaved)setTimeout(props.onSaved,900);
   }
 
   return h("div",{style:{padding:"16px 16px 90px"}},
@@ -790,9 +835,10 @@ function TabAnalyse(props){
 
 // ── TAB HISTORIQUE ───────────────────────────────────────────────────────
 function TabHistorique(props){
-  var bilans=props.bilans,setBilans=props.setBilans;
+  var bilans=props.bilans,setBilans=props.setBilans,obj=props.objectif,premium=props.premium;
   var ss=useState(null),sel=ss[0],setSel=ss[1];
   var spv=useState(null),pv=spv[0],setPv=spv[1];
+  var svw=useState("liste"),view=svw[0],setView=svw[1];
   var sorted=bilans.slice().sort(function(a,b){return b.date.localeCompare(a.date);});
 
   function del(id){
@@ -843,10 +889,17 @@ function TabHistorique(props){
   }
 
   return h("div",{style:{padding:"16px 16px 90px"}},
-    h("div",{style:{marginBottom:18}},
-      h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em"}},"ARCHIVE"),
+    h("div",{style:{marginBottom:14}},
+      h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em"}},"SUIVI"),
       h("h2",{style:{margin:"3px 0 0",fontSize:22,fontWeight:900,color:G.gold}},"HISTORIQUE")
     ),
+    h("div",{style:{display:"flex",gap:8,marginBottom:16}},
+      h("button",{onClick:function(){setView("liste");},
+        style:{flex:1,background:view==="liste"?G.gold:G.bg3,border:"none",color:view==="liste"?"#fff":G.muted,borderRadius:9,padding:"9px 0",fontSize:11,fontWeight:800,cursor:"pointer"}},"📋 Bilans"),
+      h("button",{onClick:function(){setView("compa");},
+        style:{flex:1,background:view==="compa"?G.gold:G.bg3,border:"none",color:view==="compa"?"#fff":G.muted,borderRadius:9,padding:"9px 0",fontSize:11,fontWeight:800,cursor:"pointer"}},"🔀 Avant / Après")
+    ),
+    view==="compa"?h(TabComparaison,{bilans:bilans,obj:obj,premium:premium}):
     sorted.length===0?h("div",{style:{textAlign:"center",padding:40}},h("div",{style:{fontSize:11,color:G.muted}},"Aucun bilan enregistré")):
     sorted.map(function(b,i){
       var next=sorted[i+1];
@@ -1249,11 +1302,10 @@ function BodyTracker(){
   var lastBF=lastBilan&&lastBilan.bf!=null?lastBilan.bf:null;
 
   var tabs=[
-    {id:"nouveau",   label:"BILAN"},
-    {id:"analyse",   label:"ANALYSE",  badge:urgents>0?urgents:null},
-    {id:"historique",label:"ARCHIVE"},
-    {id:"compa",     label:"AVANT/APR"},
-    {id:"reglages",  label:"⚙"}
+    {id:"nouveau",   label:"📋 BILAN"},
+    {id:"analyse",   label:"🧠 ANALYSE",  badge:urgents>0?urgents:null},
+    {id:"historique",label:"🕒 HISTORIQUE"},
+    {id:"reglages",  label:"⚙️ PARAMÈTRES"}
   ];
 
   if(!authChecked) return h("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}},
@@ -1277,16 +1329,15 @@ function BodyTracker(){
         )
       )
     ),
-    tab==="nouveau"   ?h(TabNouveauBilan,{bilans:bilans,setBilans:setBilans,objectif:obj,session:session}):null,
+    tab==="nouveau"   ?h(TabBilan,      {bilans:bilans,setBilans:setBilans,objectif:obj,session:session}):null,
     tab==="analyse"   ?h(TabAnalyse,     {bilans:bilans,objectif:obj}):null,
-    tab==="historique"?h(TabHistorique,  {bilans:bilans,setBilans:setBilans}):null,
-    tab==="compa"     ?h(TabComparaison, {bilans:bilans,obj:obj,premium:premium}):null,
+    tab==="historique"?h(TabHistorique,  {bilans:bilans,setBilans:setBilans,objectif:obj,premium:premium}):null,
     tab==="reglages"  ?h(TabReglages,    {objectif:obj,setObjectif:setObj,bilans:bilans,setBilans:setBilans,session:session,setSession:setSession,premium:premium,hasPack:hasPack}):null,
     h("div",{style:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:G.bg2,borderTop:"1px solid "+G.border,display:"flex"}},
       tabs.map(function(t){
         var a=tab===t.id;
         return h("button",{key:t.id,onClick:function(){setTab(t.id);},
-          style:{flex:1,padding:"10px 0 12px",background:"none",border:"none",borderTop:"2px solid "+(a?G.gold:"transparent"),color:a?G.gold:G.muted,cursor:"pointer",fontSize:t.id==="reglages"?14:7,fontWeight:700,letterSpacing:"0.04em",fontFamily:"monospace",position:"relative"}},
+          style:{flex:1,padding:"10px 0 12px",background:"none",border:"none",borderTop:"2px solid "+(a?G.gold:"transparent"),color:a?G.gold:G.muted,cursor:"pointer",fontSize:7.5,fontWeight:700,letterSpacing:"0.04em",fontFamily:"monospace",position:"relative"}},
           t.label,
           t.badge?h("div",{style:{position:"absolute",top:6,right:"50%",transform:"translateX(8px)",background:G.red,borderRadius:"50%",width:14,height:14,fontSize:8,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900}},t.badge):null
         );
