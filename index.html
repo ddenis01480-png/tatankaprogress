@@ -984,10 +984,65 @@ function TabAnalyse(props){
   var minV=gData.length>0?Math.min.apply(null,gData.map(function(d){return d.val;})):0;
   var rng=maxV-minV||1;
 
+  // ── Synthèse globale, dérivée des alertes existantes (aucune nouvelle règle métier) ──
+  var nDanger=alerts.filter(function(a){return a.type==="danger";}).length;
+  var nWarn=alerts.filter(function(a){return a.type==="warn";}).length;
+  var nGood=alerts.filter(function(a){return a.type==="good";}).length;
+  var statusTier=
+    nDanger>0?{emoji:"🔴",label:"Réévaluation nécessaire",color:G.red,ring:22}:
+    nWarn>0  ?{emoji:"🟠",label:"Progression à corriger",color:G.orange,ring:50}:
+    nGood>=2 ?{emoji:"✅",label:"Très bonne progression",color:G.green,ring:92}:
+              {emoji:"🟡",label:"Bonne progression",color:"#e0ab30",ring:72};
+
+  // Tendance : la part de graisse dans la variation récente de poids (réutilise mg/mm déjà calculés)
+  var trend=null;
+  if(prev){
+    var dP=last.poids!=null&&prev.poids!=null?rd(last.poids-prev.poids):null;
+    var dMG=last.mg!=null&&prev.mg!=null?rd(last.mg-prev.mg):null;
+    var dMM=last.mm!=null&&prev.mm!=null?rd(last.mm-prev.mm):null;
+    if(dP!=null&&dP<0&&dMG!=null&&dMG<0){
+      var pctFat=Math.min(100,Math.round((dMG/dP)*100));
+      trend=pctFat>=75?
+        {icon:"📈",label:"En amélioration",text:"Depuis ton dernier bilan, ta perte de graisse est plus importante que ta perte de poids, signe d'une bonne préservation musculaire."}:
+        {icon:"📉",label:"À surveiller",text:"Une partie de ta perte récente touche aussi la masse maigre — vérifie tes apports en protéines."};
+    }else if(dP!=null&&dP>0&&dMM!=null&&dMM>0){
+      trend={icon:"📈",label:"En amélioration",text:"Ta prise de poids récente s'accompagne d'un gain de masse musculaire — bon signe pour un objectif de prise de muscle."};
+    }else if(dP!=null&&Math.abs(dP)<0.3){
+      trend={icon:"➡️",label:"Stable",text:"Ton poids est quasi stable depuis le dernier bilan — regarde plutôt le %MG et les mensurations pour juger de ta progression."};
+    }
+  }
+
+  // Action prioritaire = alerte la plus sévère (danger, sinon warn, sinon rien)
+  var priorityAlert=alerts.find(function(a){return a.type==="danger";})||alerts.find(function(a){return a.type==="warn";})||null;
+  var otherAlerts=alerts.filter(function(a){return a!==priorityAlert;});
+  var badgeFor={danger:{emoji:"🔴",label:"PRIORITÉ ÉLEVÉE"},warn:{emoji:"🟠",label:"À SURVEILLER"},good:{emoji:"🟢",label:"PROGRESSION POSITIVE"},info:{emoji:"🔵",label:"INFO"}};
+
   return h("div",{style:{padding:"16px 16px 90px"}},
     h("div",{style:{marginBottom:14}},
       h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em"}},"BODYBUILDING · SUIVI PERSONNALISÉ"),
       h("h2",{style:{margin:"3px 0 0",fontSize:22,fontWeight:900,color:G.gold}},"ANALYSE")
+    ),
+
+    // Synthèse + tendance (nouveau, dérivé des alertes existantes)
+    h(Card,null,
+      h("div",{style:{display:"flex",alignItems:"center",gap:14}},
+        h("div",{style:{position:"relative",width:56,height:56,flexShrink:0}},
+          h("svg",{width:56,height:56,viewBox:"0 0 56 56",style:{transform:"rotate(-90deg)"}},
+            h("circle",{cx:28,cy:28,r:23,fill:"none",stroke:G.border,strokeWidth:5}),
+            h("circle",{cx:28,cy:28,r:23,fill:"none",stroke:statusTier.color,strokeWidth:5,strokeLinecap:"round",
+              strokeDasharray:144.5,strokeDashoffset:144.5*(1-statusTier.ring/100)})
+          ),
+          h("div",{style:{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}},statusTier.emoji)
+        ),
+        h("div",{style:{flex:1}},
+          h("div",{style:{fontSize:14,fontWeight:900,color:statusTier.color}},statusTier.label),
+          h("div",{style:{fontSize:10.5,color:G.muted,marginTop:2}},bilans.length+" bilans enregistrés")
+        )
+      ),
+      trend?h("div",{style:{display:"flex",gap:8,marginTop:12,paddingTop:12,borderTop:"1px solid "+G.border,fontSize:11.5,color:G.text,lineHeight:1.5}},
+        h("span",null,trend.icon),
+        h("span",null,h("b",{style:{color:G.gold}},trend.label+" — "),trend.text)
+      ):null
     ),
 
     // Badge objectif + TRT
@@ -1053,35 +1108,72 @@ function TabAnalyse(props){
       )
     ):null,
 
-    // Directives bodybuilding
-    alerts.length>0?h("div",null,
-      h("div",{style:{fontSize:9,color:G.gold,fontFamily:"monospace",letterSpacing:"0.1em",marginBottom:10}},"DIRECTIVES BODYBUILDING PERSONNALISÉES"),
-      alerts.map(function(a,i){
-        return h(Card,{key:i,style:{background:a.color+"0d",border:"1px solid "+a.color+"33",marginBottom:10}},
-          h("div",{style:{display:"flex",gap:12,marginBottom:a.actions&&a.actions.length?10:0}},
-            h("div",{style:{background:a.color+"22",borderRadius:10,padding:"8px 10px",fontSize:15,fontWeight:900,color:a.color,minWidth:40,textAlign:"center"}},a.icon),
-            h("div",{style:{flex:1}},
-              h("div",{style:{fontSize:8,color:a.color,fontFamily:"monospace",fontWeight:900,marginBottom:3,letterSpacing:"0.08em"}},a.urgency),
-              h("div",{style:{fontSize:13,fontWeight:800,color:G.text}},a.title),
-              h("div",{style:{fontSize:11,color:G.muted,marginTop:4,lineHeight:1.6}},a.msg)
-            )
-          ),
-          a.actions&&a.actions.length?h("div",{style:{borderTop:"1px solid "+a.color+"20",paddingTop:10}},
-            h("div",{style:{fontSize:9,color:a.color,fontFamily:"monospace",marginBottom:8}},"ACTIONS"),
-            a.actions.map(function(ac,j){
-              return h("div",{key:j,style:{display:"flex",gap:10,marginBottom:7}},
-                h("span",{style:{color:a.color,fontWeight:900,fontSize:12,minWidth:16}},(j+1)+"."),
-                h("span",{style:{fontSize:11,color:G.muted,lineHeight:1.6}},ac)
-              );
-            })
-          ):null
-        );
-      })
+    // Action prioritaire
+    priorityAlert?h(Card,{style:{borderLeft:"3px solid "+priorityAlert.color}},
+      h("div",{style:{fontSize:9,letterSpacing:"0.1em",fontWeight:900,color:priorityAlert.color,fontFamily:"monospace",marginBottom:8}},
+        badgeFor[priorityAlert.type].emoji+" ACTION PRIORITAIRE"),
+      h("div",{style:{fontSize:15,fontWeight:800,marginBottom:12,lineHeight:1.35}},priorityAlert.title),
+      h(Lbl,null,"POURQUOI ?"),
+      h("div",{style:{fontSize:12,color:G.text,lineHeight:1.6,marginBottom:priorityAlert.actions&&priorityAlert.actions.length?12:0}},priorityAlert.msg),
+      priorityAlert.actions&&priorityAlert.actions.length?h("ul",{style:{margin:"0 0 12px",padding:0,listStyle:"none",fontSize:12,color:G.text}},
+        priorityAlert.actions.map(function(ac,j){
+          return h("li",{key:j,style:{display:"flex",gap:8,padding:"4px 0",lineHeight:1.5}},
+            h("span",{style:{color:priorityAlert.color,fontWeight:900}},"•"),ac);
+        })
+      ):null,
+      h("div",{style:{display:"flex",alignItems:"center",gap:8,background:G.bg3,borderRadius:9,padding:"9px 11px",fontSize:11,color:G.muted}},
+        "🗓 ",h("span",null,"À contrôler : ",h("b",{style:{color:G.text}},"nouveau bilan dans 7 jours")))
+    ):
+    alerts.length>0?h(Card,{style:{background:G.green+"0d",border:"1px solid "+G.green+"33"}},
+      h("div",{style:{fontSize:13,fontWeight:800,color:G.green}},"✓ Rien d'urgent à corriger — continue ainsi.")
     ):null,
 
-    bilans.length===1?h(Card,{style:{textAlign:"center",padding:20}},
+    // Toutes les recommandations
+    otherAlerts.length>0?h("div",{style:{marginTop:4}},
+      h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.1em",marginBottom:10}},"TOUTES LES RECOMMANDATIONS"),
+      h(Card,{style:{padding:0,overflow:"hidden"}},
+        otherAlerts.map(function(a,i){
+          var b=badgeFor[a.type]||badgeFor.info;
+          return h(AlertRow,{key:i,alert:a,badge:b,isFirst:i===0});
+        })
+      )
+    ):null,
+
+    // Accès aux archives (remplace l'ancien "historique des analyses" — s'appuie sur les vraies archives de bilans)
+    h("div",{onClick:function(){props.setTab&&props.setTab("historique");},
+      style:{background:G.bg2,border:"1px solid "+G.border,borderRadius:14,padding:"13px 15px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginTop:4}},
+      h("div",{style:{fontSize:12.5,fontWeight:700,color:G.text}},"📚 Voir l'historique de tes bilans"),
+      h("div",{style:{color:G.muted,fontSize:14}},"›")
+    ),
+
+    bilans.length===1?h(Card,{style:{textAlign:"center",padding:20,marginTop:10}},
       h("div",{style:{fontSize:11,color:G.muted}},"L'analyse complète sera disponible dès le 2ème bilan")
     ):null
+  );
+}
+
+// Ligne de recommandation dépliable (détail = actions existantes du moteur d'alertes, aucune donnée inventée)
+function AlertRow(props){
+  var a=props.alert,b=props.badge;
+  var so=useState(false),open=so[0],setOpen=so[1];
+  return h("div",{onClick:function(){setOpen(!open);},
+    style:{padding:"14px 15px",borderLeft:"3px solid "+a.color,borderTop:props.isFirst?"none":"1px solid "+G.border,cursor:"pointer"}},
+    h("div",{style:{display:"flex",alignItems:"flex-start",gap:9}},
+      h("div",{style:{fontSize:15,lineHeight:1.3,flexShrink:0}},b.emoji),
+      h("div",{style:{flex:1}},
+        h("div",{style:{fontSize:8.5,letterSpacing:"0.08em",fontWeight:900,color:a.color,fontFamily:"monospace",marginBottom:4}},b.label),
+        h("div",{style:{fontSize:13,fontWeight:800,color:G.text,lineHeight:1.3}},a.title),
+        h("div",{style:{fontSize:11.5,color:G.muted,marginTop:5,lineHeight:1.5}},a.msg),
+        a.actions&&a.actions.length?h("div",{style:{display:"inline-flex",alignItems:"center",gap:5,marginTop:9,fontSize:10,fontWeight:800,color:G.gold}},
+          open?"Masquer le détail ▴":"Voir le détail ▾"):null,
+        open&&a.actions&&a.actions.length?h("div",{style:{marginTop:9,paddingTop:9,borderTop:"1px solid "+G.border}},
+          a.actions.map(function(ac,j){
+            return h("div",{key:j,style:{display:"flex",gap:8,padding:"3px 0",fontSize:11,color:G.text,lineHeight:1.5}},
+              h("span",{style:{color:a.color,fontWeight:900}},"•"),ac);
+          })
+        ):null
+      )
+    )
   );
 }
 
@@ -1575,7 +1667,7 @@ function BodyTracker(){
       )
     ),
     tab==="nouveau"   ?h(TabBilan,      {bilans:bilans,setBilans:setBilans,objectif:obj,session:session,premium:premium,setTab:setTab}):null,
-    tab==="analyse"   ?h(TabAnalyse,     {bilans:bilans,objectif:obj}):null,
+    tab==="analyse"   ?h(TabAnalyse,     {bilans:bilans,objectif:obj,setTab:setTab}):null,
     tab==="compa"     ?h(TabComparaison, {bilans:bilans,obj:obj,premium:premium}):null,
     tab==="historique"?h(TabHistorique,  {bilans:bilans,setBilans:setBilans}):null,
     tab==="reglages"  ?h(TabReglages,    {objectif:obj,setObjectif:setObj,bilans:bilans,setBilans:setBilans,session:session,setSession:setSession,premium:premium,hasPack:hasPack}):null,
