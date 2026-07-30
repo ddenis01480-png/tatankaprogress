@@ -561,22 +561,32 @@ function TabBilan(props){
   var lastPhoto=last?(pLoad(last.id,"face")||pLoad(last.id,"dos")||pLoad(last.id,"profil")):null;
   var photoCount=bilans.filter(function(b){return pLoad(b.id,"face")||pLoad(b.id,"dos")||pLoad(b.id,"profil");}).length;
 
-  // Estimation du poids cible : masse maigre actuelle projetée au %MG idéal de l'objectif
+  // Estimation du poids cible : masse maigre actuelle projetée au %MG idéal de l'objectif (toujours indicatif)
   var estTargetWeight=(last&&last.mm!=null&&tgt.ideal)?rd(last.mm/(1-tgt.ideal/100)):null;
   var daysEcoules=first?Math.max(0,Math.round((new Date(todayStr())-new Date(first.date))/86400000)):null;
-  // Estimation des jours restants à partir du rythme récent (purement indicatif)
-  var daysRestants=null;
-  if(prev&&last&&estTargetWeight!=null&&last.poids!=null&&prev.poids!=null){
-    var gapDays=Math.max(1,(new Date(last.date)-new Date(prev.date))/86400000);
-    var weeklyRate=(last.poids-prev.poids)/(gapDays/7);
-    var toGo=last.poids-estTargetWeight;
-    if(weeklyRate!==0&&(toGo>0)===(weeklyRate<0)){
-      daysRestants=Math.abs(Math.round((toGo/weeklyRate)*7));
-    }
+
+  // Progression vers l'objectif basée sur le %MG (physique), pas sur le poids
+  var bfProgressPct=null;
+  if(first&&first.bf!=null&&last&&last.bf!=null&&tgt.ideal!=null&&first.bf!==tgt.ideal){
+    bfProgressPct=Math.max(0,Math.min(100,Math.round(((first.bf-last.bf)/(first.bf-tgt.ideal))*100)));
   }
-  var progressPct=null;
-  if(first&&first.poids!=null&&last&&last.poids!=null&&estTargetWeight!=null&&first.poids!==estTargetWeight){
-    progressPct=Math.max(0,Math.min(100,Math.round(((first.poids-last.poids)/(first.poids-estTargetWeight))*100)));
+
+  // Estimation du temps restant, en semaines et sous forme de plage (jamais un nombre de jours exact)
+  var weeksRangeLabel=null;
+  if(first&&last&&first.date!==last.date&&first.bf!=null&&last.bf!=null&&tgt.ideal!=null){
+    var totalDays=Math.max(1,(new Date(last.date)-new Date(first.date))/86400000);
+    var weeklyBFRate=(last.bf-first.bf)/(totalDays/7);
+    var bfToGo=tgt.ideal-last.bf;
+    // On n'estime que si le rythme actuel va bien dans le sens de l'objectif
+    if(weeklyBFRate!==0&&(bfToGo>0)===(weeklyBFRate>0)){
+      var weeksBase=Math.abs(bfToGo/weeklyBFRate);
+      if(weeksBase<1){weeksRangeLabel="moins d'1 semaine";}
+      else{
+        var lowW=Math.max(1,Math.floor(weeksBase*0.75));
+        var highW=Math.max(lowW+1,Math.ceil(weeksBase*1.25));
+        weeksRangeLabel="~"+lowW+" à "+highW+" semaines";
+      }
+    }
   }
 
   var evoRows=[
@@ -615,14 +625,15 @@ function TabBilan(props){
       ),
       h("div",{style:{flex:1}},
         h("div",{style:{fontSize:12.5,fontWeight:800,color:G.text}},"Tatanka Score"+(tScore.score!=null?" — "+tScore.score+"/100":"")),
-        h("div",{style:{fontSize:11.5,color:G.muted,marginTop:3,lineHeight:1.4}},tScore.msg)
+        h("div",{style:{fontSize:11.5,color:G.muted,marginTop:3,lineHeight:1.4}},tScore.msg),
+        tScore.score!=null?h("div",{style:{fontSize:8.5,color:G.muted,marginTop:5,fontStyle:"italic"}},"Score indicatif, calcul simplifié"):null
       )
     ),
 
     !last?h(Card,null,h("div",{style:{fontSize:12,color:G.muted,textAlign:"center",padding:"10px 0"}},"Aucun bilan enregistré pour l'instant.")):
     h("div",null,
 
-      // Carte Objectif
+      // Carte Objectif — priorité à la composition corporelle, pas au poids
       h(Card,null,
         h(Lbl,null,"OBJECTIF EN COURS"),
         h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}},
@@ -633,17 +644,18 @@ function TabBilan(props){
           h("div",{style:{position:"relative",width:74,height:74,flexShrink:0}},
             h("svg",{width:74,height:74,viewBox:"0 0 74 74",style:{transform:"rotate(-90deg)"}},
               h("circle",{cx:37,cy:37,r:31,fill:"none",stroke:G.border,strokeWidth:7}),
-              progressPct!=null?h("circle",{cx:37,cy:37,r:31,fill:"none",stroke:oi.color,strokeWidth:7,strokeLinecap:"round",
-                strokeDasharray:194.8,strokeDashoffset:194.8*(1-progressPct/100)}):null
+              bfProgressPct!=null?h("circle",{cx:37,cy:37,r:31,fill:"none",stroke:oi.color,strokeWidth:7,strokeLinecap:"round",
+                strokeDasharray:194.8,strokeDashoffset:194.8*(1-bfProgressPct/100)}):null
             ),
             h("div",{style:{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
-              h("b",{style:{fontSize:16,fontWeight:900,color:G.text}},progressPct!=null?progressPct+"%":"–"),
-              h("small",{style:{fontSize:7,color:G.muted,letterSpacing:"0.03em",marginTop:1}},"OBJECTIF ATTEINT")
+              h("b",{style:{fontSize:16,fontWeight:900,color:G.text}},bfProgressPct!=null?bfProgressPct+"%":"–"),
+              h("small",{style:{fontSize:6.5,color:G.muted,letterSpacing:"0.02em",marginTop:1,textAlign:"center",lineHeight:1.1}},"VERS TON",h("br"),"OBJECTIF %MG")
             )
           ),
-          h("div",{style:{flex:1,display:"flex",flexDirection:"column",gap:8}},
-            h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Poids cible"),h("span",{style:{fontWeight:800,color:oi.color}},estTargetWeight!=null?estTargetWeight+" kg":"–")),
-            h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"%MG cible"),h("span",{style:{fontWeight:800,color:oi.color}},tgt.label)),
+          h("div",{style:{flex:1,display:"flex",flexDirection:"column",gap:7}},
+            h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Objectif"),h("span",{style:{fontWeight:800,color:oi.color}},tgt.ideal+"% de masse grasse")),
+            h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Progression"),
+              h("span",{style:{fontWeight:800,color:G.text}},(first&&first.bf!=null?first.bf:"–")+"% → "+(last.bf!=null?last.bf:"–")+"%")),
             h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Poids actuel"),h("span",{style:{fontWeight:800,color:G.text}},last.poids!=null?last.poids+" kg":"–"))
           )
         ),
@@ -653,9 +665,17 @@ function TabBilan(props){
             h("small",{style:{fontSize:8,color:G.muted,letterSpacing:"0.06em",fontFamily:"monospace"}},"JOURS ÉCOULÉS")
           ),
           h("div",{style:{flex:1,background:G.bg3,borderRadius:10,padding:"9px 10px",textAlign:"center"}},
-            h("b",{style:{display:"block",fontSize:15,fontWeight:900,color:G.text}},daysRestants!=null?daysRestants:"–"),
-            h("small",{style:{fontSize:8,color:G.muted,letterSpacing:"0.06em",fontFamily:"monospace"}},"JOURS RESTANTS")
+            h("b",{style:{display:"block",fontSize:12.5,fontWeight:900,color:G.text,lineHeight:1.2}},weeksRangeLabel||"–"),
+            h("small",{style:{fontSize:8,color:G.muted,letterSpacing:"0.06em",fontFamily:"monospace"}},"RESTE ESTIMÉ")
           )
+        ),
+        h("div",{style:{marginTop:12,paddingTop:12,borderTop:"1px solid "+G.border,display:"flex",justifyContent:"space-between",alignItems:"center"}},
+          h("span",{style:{fontSize:11,color:G.muted}},"Poids estimé à l'objectif"),
+          h("span",{style:{fontSize:12.5,fontWeight:800,color:G.text}},estTargetWeight!=null?"~"+estTargetWeight+" kg":"–")
+        ),
+        h("div",{style:{marginTop:9,fontSize:9,color:G.muted,lineHeight:1.5,display:"flex",alignItems:"center",gap:5}},
+          h("span",{style:{fontSize:8,fontWeight:900,letterSpacing:"0.06em",color:G.muted,border:"1px solid "+G.border,borderRadius:4,padding:"1px 5px",fontFamily:"monospace"}},"ESTIMATION"),
+          "Basée sur ta tendance récente, pas une garantie."
         )
       ),
 
