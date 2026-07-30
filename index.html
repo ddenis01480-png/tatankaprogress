@@ -476,9 +476,67 @@ function BFGauge(props){
 }
 
 // ── TAB NOUVEAU BILAN ────────────────────────────────────────────────────
-// ── TAB BILAN (résumé + bouton Nouveau bilan) ─────────────────────────────
+// ── Fonctions additives pour le tableau de bord (n'affectent aucun calcul existant) ─
+function calcTatankaScore(bilans,obj){
+  if(!bilans||bilans.length<2)return{score:null,msg:"Ajoute au moins 2 bilans pour débloquer ton score."};
+  var sorted=bilans.slice().sort(function(a,b){return a.date.localeCompare(b.date);});
+  var first=sorted[0],last=sorted[sorted.length-1],n=sorted.length;
+  var days=Math.max(1,(new Date(last.date)-new Date(first.date))/86400000);
+  var avgGap=days/(n-1||1);
+  var regularite=Math.max(0,25-Math.abs(avgGap-7)*1.5);
+  var freqRatio=Math.min(1,n/Math.max(1,days/7));
+  var frequence=freqRatio*25;
+  var dPoids=(last.poids!=null&&first.poids!=null)?last.poids-first.poids:null;
+  var poidsScore=12.5;
+  if(dPoids!=null){
+    if(obj==="seche")poidsScore=dPoids<0?25:dPoids===0?12:0;
+    else if(obj==="masse")poidsScore=dPoids>0?25:dPoids===0?12:0;
+    else poidsScore=Math.abs(dPoids)<1?25:12;
+  }
+  var dBF=(last.bf!=null&&first.bf!=null)?last.bf-first.bf:null;
+  var bfScore=12.5;
+  if(dBF!=null){
+    if(obj==="masse")bfScore=dBF<=1?25:dBF<=3?15:5;
+    else bfScore=dBF<0?25:dBF===0?12:0;
+  }
+  var score=Math.max(0,Math.min(100,Math.round(regularite+frequence+poidsScore+bfScore)));
+  var msg=score>=80?"Excellent travail. Continue ainsi.":score>=60?"Bonne progression, reste régulier.":
+    score>=40?"Quelques ajustements amélioreraient ton score.":"Reprends un rythme de bilans plus régulier.";
+  return{score:score,msg:msg};
+}
+
+function Sparkline(props){
+  var vals=(props.values||[]).filter(function(v){return v!=null;});
+  if(vals.length<2)return null;
+  var w=48,ht=20;
+  var min=Math.min.apply(null,vals),max=Math.max.apply(null,vals);
+  var range=(max-min)||1;
+  var pts=vals.map(function(v,i){
+    var x=vals.length>1?(i/(vals.length-1))*w:0;
+    var y=ht-((v-min)/range)*ht;
+    return x.toFixed(1)+","+y.toFixed(1);
+  }).join(" ");
+  return h("svg",{width:w,height:ht,viewBox:"0 0 "+w+" "+ht},
+    h("polyline",{points:pts,fill:"none",stroke:props.color||G.gold,strokeWidth:2,strokeLinecap:"round",strokeLinejoin:"round"})
+  );
+}
+
+// Couleur d'affichage d'une variation selon l'objectif — purement présentatif, ne modifie aucune règle d'alerte existante
+function evoColor(key,delta,obj){
+  if(delta==null||delta===0)return G.muted;
+  if(key==="poids"||key==="mg"||key==="taille"){
+    if(obj==="masse")return delta>0?G.orange:G.green;
+    return delta<0?G.green:G.orange;
+  }
+  if(key==="mm"){
+    return delta>=0?G.green:G.orange;
+  }
+  return delta<0?G.green:G.orange;
+}
+
+// ── TAB BILAN — tableau de bord principal ─────────────────────────────────
 function TabBilan(props){
-  var bilans=props.bilans,setBilans=props.setBilans,obj=props.objectif,session=props.session;
+  var bilans=props.bilans,setBilans=props.setBilans,obj=props.objectif,session=props.session,premium=props.premium,setTab=props.setTab;
   var sf=useState(false),showForm=sf[0],setShowForm=sf[1];
 
   if(showForm){
@@ -493,22 +551,94 @@ function TabBilan(props){
 
   var sorted=bilans.slice().sort(function(a,b){return b.date.localeCompare(a.date);});
   var last=sorted.length>0?sorted[0]:null;
+  var prev=sorted.length>1?sorted[1]:null;
+  var histAsc=bilans.slice().sort(function(a,b){return a.date.localeCompare(b.date);}).slice(-6);
+  var tScore=calcTatankaScore(bilans,obj);
+  var lastPhoto=last?(pLoad(last.id,"face")||pLoad(last.id,"dos")||pLoad(last.id,"profil")):null;
+  var photoCount=bilans.filter(function(b){return pLoad(b.id,"face")||pLoad(b.id,"dos")||pLoad(b.id,"profil");}).length;
 
-  return h("div",{style:{padding:"16px 16px 90px"}},
-    h("div",{style:{marginBottom:18}},
-      h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em"}},"BILAN"),
+  var metrics=[
+    {key:"poids",  label:"POIDS",         unit:"kg"},
+    {key:"mg",     label:"MASSE GRASSE",  unit:"kg"},
+    {key:"mm",     label:"MASSE MUSC.",   unit:"kg"},
+    {key:"taille", label:"TOUR DE TAILLE",unit:"cm"}
+  ];
+
+  return h("div",{style:{padding:"16px 16px 110px"}},
+
+    h("div",{style:{marginBottom:16}},
+      h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em"}},"TABLEAU DE BORD"),
       h("h2",{style:{margin:"3px 0 0",fontSize:22,fontWeight:900,color:G.gold}},last?fmtD(last.date):"Aucun bilan")
     ),
-    last?h(Card,null,
-      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
-        MESURES.filter(function(m){return last[m.key]!=null;}).map(function(m){
-          return h(SBox,{key:m.key,label:m.label,value:last[m.key],unit:m.unit,color:G.gold});
-        })
+
+    // Tatanka Score
+    h(Card,{style:{display:"flex",alignItems:"center",gap:16}},
+      h("div",{style:{position:"relative",width:64,height:64,flexShrink:0}},
+        h("svg",{width:64,height:64,viewBox:"0 0 64 64",style:{transform:"rotate(-90deg)"}},
+          h("circle",{cx:32,cy:32,r:27,fill:"none",stroke:G.border,strokeWidth:6}),
+          tScore.score!=null?h("circle",{cx:32,cy:32,r:27,fill:"none",stroke:G.gold,strokeWidth:6,strokeLinecap:"round",
+            strokeDasharray:169.6,strokeDashoffset:169.6*(1-tScore.score/100)}):null
+        ),
+        h("div",{style:{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:900,color:G.text}},
+          tScore.score!=null?tScore.score:"–")
+      ),
+      h("div",{style:{flex:1}},
+        h("div",{style:{fontSize:12.5,fontWeight:800,color:G.text}},"Tatanka Score"+(tScore.score!=null?" — "+tScore.score+"/100":"")),
+        h("div",{style:{fontSize:11.5,color:G.muted,marginTop:3,lineHeight:1.4}},tScore.msg)
       )
-    ):h(Card,null,h("div",{style:{fontSize:12,color:G.muted,textAlign:"center",padding:"10px 0"}},"Aucun bilan enregistré pour l'instant.")),
-    h("button",{onClick:function(){setShowForm(true);},
-      style:{width:"100%",marginTop:16,background:"linear-gradient(135deg,"+G.gold+","+G.goldDim+")",border:"none",color:"#fff",fontWeight:900,fontSize:15,padding:16,borderRadius:14,cursor:"pointer"}},
-      "➕ Nouveau bilan")
+    ),
+
+    // Cartes métriques avec évolution + sparkline
+    !last?h(Card,null,h("div",{style:{fontSize:12,color:G.muted,textAlign:"center",padding:"10px 0"}},"Aucun bilan enregistré pour l'instant.")):
+    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+      metrics.map(function(m){
+        var cur=last?last[m.key]:null;
+        var pv=prev?prev[m.key]:null;
+        var delta=(cur!=null&&pv!=null)?rd(cur-pv):null;
+        var hist=histAsc.map(function(b){return b[m.key];});
+        var col=evoColor(m.key,delta,obj);
+        return h("div",{key:m.key,style:{background:G.bg2,borderRadius:14,padding:"12px 13px",border:"1px solid "+G.border}},
+          h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace",letterSpacing:"0.08em",marginBottom:6}},m.label),
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}},
+            h("div",null,
+              h("div",{style:{fontSize:17,fontWeight:900,color:G.text}},cur!=null?cur:"–",cur!=null?h("small",{style:{fontSize:10,color:G.muted,fontWeight:600}}," "+m.unit):null),
+              delta!=null?h("div",{style:{fontSize:9.5,fontWeight:800,color:col,marginTop:3}},(delta>0?"↑ +":delta<0?"↓ ":"→ ")+delta+m.unit):null
+            ),
+            h(Sparkline,{values:hist,color:col!==G.muted?col:G.gold})
+          )
+        );
+      })
+    ),
+
+    // Photos avant/après
+    h(Card,null,
+      h(Lbl,null,"PHOTOS D'ÉVOLUTION"),
+      h("div",{style:{display:"flex",gap:12,alignItems:"center"}},
+        h("div",{style:{width:56,height:70,borderRadius:9,overflow:"hidden",background:G.bg3,border:"1px solid "+G.border,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}},
+          lastPhoto?h("img",{src:lastPhoto,style:{width:"100%",height:"100%",objectFit:"cover"}}):h("div",{style:{fontSize:18,color:G.muted}},"📷")
+        ),
+        h("div",{style:{flex:1}},
+          h("div",{style:{fontSize:10.5,color:G.muted,marginBottom:2}},last?"Dernière photo — "+fmtD(last.date):"Aucune photo pour l'instant"),
+          h("div",{style:{fontSize:10.5,color:G.gold,fontWeight:800,marginBottom:9}},photoCount+" photo"+(photoCount>1?"s":"")+" enregistrée"+(photoCount>1?"s":"")),
+          h("button",{onClick:function(){setTab&&setTab("compa");},
+            style:{background:G.bg3,border:"1px solid "+G.border,color:G.text,fontSize:11,fontWeight:800,padding:"9px 13px",borderRadius:9,cursor:"pointer"}},"🔀 Comparer Avant / Après")
+        )
+      )
+    ),
+
+    // Accès aux archives
+    h("div",{onClick:function(){setTab&&setTab("historique");},
+      style:{background:G.bg2,border:"1px solid "+G.border,borderRadius:14,padding:"13px 15px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:10}},
+      h("div",{style:{fontSize:12.5,fontWeight:700,color:G.text}},"📚 Voir toutes tes archives"),
+      h("div",{style:{color:G.muted,fontSize:14}},"›")
+    ),
+
+    // Bouton flottant Nouveau bilan
+    h("div",{style:{position:"fixed",left:"50%",transform:"translateX(-50%)",bottom:76,width:"100%",maxWidth:480,padding:"0 16px",zIndex:20}},
+      h("button",{onClick:function(){setShowForm(true);},
+        style:{width:"100%",background:"linear-gradient(135deg,"+G.gold+","+G.goldDim+")",border:"none",color:"#fff",fontWeight:900,fontSize:15,padding:16,borderRadius:14,cursor:"pointer",boxShadow:"0 10px 28px -8px rgba(47,124,246,.55)"}},
+        "➕ Nouveau bilan")
+    )
   );
 }
 
@@ -835,10 +965,9 @@ function TabAnalyse(props){
 
 // ── TAB HISTORIQUE ───────────────────────────────────────────────────────
 function TabHistorique(props){
-  var bilans=props.bilans,setBilans=props.setBilans,obj=props.objectif,premium=props.premium;
+  var bilans=props.bilans,setBilans=props.setBilans;
   var ss=useState(null),sel=ss[0],setSel=ss[1];
   var spv=useState(null),pv=spv[0],setPv=spv[1];
-  var svw=useState("liste"),view=svw[0],setView=svw[1];
   var sorted=bilans.slice().sort(function(a,b){return b.date.localeCompare(a.date);});
 
   function del(id){
@@ -889,17 +1018,10 @@ function TabHistorique(props){
   }
 
   return h("div",{style:{padding:"16px 16px 90px"}},
-    h("div",{style:{marginBottom:14}},
-      h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em"}},"SUIVI"),
-      h("h2",{style:{margin:"3px 0 0",fontSize:22,fontWeight:900,color:G.gold}},"HISTORIQUE")
+    h("div",{style:{marginBottom:18}},
+      h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em"}},"TOUS TES BILANS"),
+      h("h2",{style:{margin:"3px 0 0",fontSize:22,fontWeight:900,color:G.gold}},"ARCHIVES")
     ),
-    h("div",{style:{display:"flex",gap:8,marginBottom:16}},
-      h("button",{onClick:function(){setView("liste");},
-        style:{flex:1,background:view==="liste"?G.gold:G.bg3,border:"none",color:view==="liste"?"#fff":G.muted,borderRadius:9,padding:"9px 0",fontSize:11,fontWeight:800,cursor:"pointer"}},"📋 Bilans"),
-      h("button",{onClick:function(){setView("compa");},
-        style:{flex:1,background:view==="compa"?G.gold:G.bg3,border:"none",color:view==="compa"?"#fff":G.muted,borderRadius:9,padding:"9px 0",fontSize:11,fontWeight:800,cursor:"pointer"}},"🔀 Avant / Après")
-    ),
-    view==="compa"?h(TabComparaison,{bilans:bilans,obj:obj,premium:premium}):
     sorted.length===0?h("div",{style:{textAlign:"center",padding:40}},h("div",{style:{fontSize:11,color:G.muted}},"Aucun bilan enregistré")):
     sorted.map(function(b,i){
       var next=sorted[i+1];
@@ -1302,9 +1424,10 @@ function BodyTracker(){
   var lastBF=lastBilan&&lastBilan.bf!=null?lastBilan.bf:null;
 
   var tabs=[
-    {id:"nouveau",   label:"📋 BILAN"},
-    {id:"analyse",   label:"🧠 ANALYSE",  badge:urgents>0?urgents:null},
-    {id:"historique",label:"🕒 HISTORIQUE"},
+    {id:"nouveau",   label:"🏠 BILAN"},
+    {id:"analyse",   label:"📊 ANALYSE",  badge:urgents>0?urgents:null},
+    {id:"compa",     label:"📸 AVANT/APR"},
+    {id:"historique",label:"📚 ARCHIVES"},
     {id:"reglages",  label:"⚙️ PARAMÈTRES"}
   ];
 
@@ -1329,9 +1452,10 @@ function BodyTracker(){
         )
       )
     ),
-    tab==="nouveau"   ?h(TabBilan,      {bilans:bilans,setBilans:setBilans,objectif:obj,session:session}):null,
+    tab==="nouveau"   ?h(TabBilan,      {bilans:bilans,setBilans:setBilans,objectif:obj,session:session,premium:premium,setTab:setTab}):null,
     tab==="analyse"   ?h(TabAnalyse,     {bilans:bilans,objectif:obj}):null,
-    tab==="historique"?h(TabHistorique,  {bilans:bilans,setBilans:setBilans,objectif:obj,premium:premium}):null,
+    tab==="compa"     ?h(TabComparaison, {bilans:bilans,obj:obj,premium:premium}):null,
+    tab==="historique"?h(TabHistorique,  {bilans:bilans,setBilans:setBilans}):null,
     tab==="reglages"  ?h(TabReglages,    {objectif:obj,setObjectif:setObj,bilans:bilans,setBilans:setBilans,session:session,setSession:setSession,premium:premium,hasPack:hasPack}):null,
     h("div",{style:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:G.bg2,borderTop:"1px solid "+G.border,display:"flex"}},
       tabs.map(function(t){
