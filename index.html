@@ -44,7 +44,7 @@
 var h=React.createElement,useState=React.useState,useEffect=React.useEffect;
 
 // ── Profil utilisateur (éditable, persisté) ───────────────────────────────
-var PROFIL_DEFAUT={sexe:"homme",age:35,tailleCm:175,trt:false};
+var PROFIL_DEFAUT={sexe:"homme",age:35,tailleCm:175,trt:false,poidsCible:null,bfCible:null};
 var PROFIL=(function(){
   try{var v=localStorage.getItem("tp_profil");return v?Object.assign({},PROFIL_DEFAUT,JSON.parse(v)):Object.assign({},PROFIL_DEFAUT);}
   catch(e){return Object.assign({},PROFIL_DEFAUT);}
@@ -556,27 +556,27 @@ function TabBilan(props){
   var prev=sortedDesc.length>1?sortedDesc[1]:null;
   var histAsc=sortedAsc.slice(-6);
   var tScore=calcTatankaScore(bilans,obj);
+  var coachAlerts=analyzeBB(bilans,obj);
   var oi=OBJECTIFS.find(function(o){return o.id===obj;})||OBJECTIFS[1];
   var tgt=bfTarget(obj);
   var lastPhoto=last?(pLoad(last.date,"face")||pLoad(last.date,"dos")||pLoad(last.date,"profil")):null;
   var photoCount=bilans.filter(function(b){return pLoad(b.date,"face")||pLoad(b.date,"dos")||pLoad(b.date,"profil");}).length;
 
-  // Estimation du poids cible : masse maigre actuelle projetée au %MG idéal de l'objectif (toujours indicatif)
-  var estTargetWeight=(last&&last.mm!=null&&tgt.ideal)?rd(last.mm/(1-tgt.ideal/100)):null;
   var daysEcoules=first?Math.max(0,Math.round((new Date(todayStr())-new Date(first.date))/86400000)):null;
+  var bfCibleActive=PROFIL.bfCible!=null?PROFIL.bfCible:tgt.ideal;
 
   // Progression vers l'objectif basée sur le %MG (physique), pas sur le poids
   var bfProgressPct=null;
-  if(first&&first.bf!=null&&last&&last.bf!=null&&tgt.ideal!=null&&first.bf!==tgt.ideal){
-    bfProgressPct=Math.max(0,Math.min(100,Math.round(((first.bf-last.bf)/(first.bf-tgt.ideal))*100)));
+  if(first&&first.bf!=null&&last&&last.bf!=null&&bfCibleActive!=null&&first.bf!==bfCibleActive){
+    bfProgressPct=Math.max(0,Math.min(100,Math.round(((first.bf-last.bf)/(first.bf-bfCibleActive))*100)));
   }
 
   // Estimation du temps restant, en semaines et sous forme de plage (jamais un nombre de jours exact)
   var weeksRangeLabel=null;
-  if(first&&last&&first.date!==last.date&&first.bf!=null&&last.bf!=null&&tgt.ideal!=null){
+  if(first&&last&&first.date!==last.date&&first.bf!=null&&last.bf!=null&&bfCibleActive!=null){
     var totalDays=Math.max(1,(new Date(last.date)-new Date(first.date))/86400000);
     var weeklyBFRate=(last.bf-first.bf)/(totalDays/7);
-    var bfToGo=tgt.ideal-last.bf;
+    var bfToGo=bfCibleActive-last.bf;
     // On n'estime que si le rythme actuel va bien dans le sens de l'objectif
     if(weeklyBFRate!==0&&(bfToGo>0)===(weeklyBFRate>0)){
       var weeksBase=Math.abs(bfToGo/weeklyBFRate);
@@ -590,45 +590,64 @@ function TabBilan(props){
   }
 
   var evoRows=[
-    {key:"poids", label:"Poids",         unit:"kg", color:G.blue},
-    {key:"taille",label:"Tour de taille",unit:"cm", color:G.orange},
-    {key:"bras",  label:"Tour de bras",  unit:"cm", color:G.purple},
-    {key:"bf",    label:"Body fat",      unit:"%",  color:G.green}
+    {key:"poids", label:"Poids",          unit:"kg",color:G.blue},
+    {key:"bf",    label:"Body Fat",       unit:"%", color:G.green},
+    {key:"mm",    label:"Masse musc.",    unit:"kg",color:G.purple},
+    {key:"taille",label:"Tour de taille", unit:"cm",color:G.orange}
   ];
 
   function delta(key,a,b){return(a&&b&&a[key]!=null&&b[key]!=null)?rd(a[key]-b[key]):null;}
 
+  var daysSinceLast=last?Math.max(0,Math.round((new Date(todayStr())-new Date(last.date))/86400000)):null;
+
   return h("div",{style:{padding:"16px 16px 110px"}},
 
-    h("div",{style:{marginBottom:4}},
-      h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em"}},"TABLEAU DE BORD"),
-      h("h2",{style:{margin:"3px 0 0",fontSize:20,fontWeight:900,color:G.text}},"Salut 👋")
-    ),
-    h("div",{style:{fontSize:12,color:G.muted,marginBottom:16}},
-      delta("poids",first,last)!=null?
-        (delta("poids",first,last)<0?Math.abs(delta("poids",first,last))+"kg perdus depuis le début — continue comme ça.":
-         delta("poids",first,last)>0?"+"+delta("poids",first,last)+"kg depuis le début.":
-         "Poids stable depuis le début — reste régulier."):
-        "Ajoute ton premier bilan pour démarrer le suivi."
+    h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}},
+      h("div",null,
+        h("h2",{style:{margin:0,fontSize:20,fontWeight:900,color:G.text}},"Bonjour 👋"),
+        h("div",{style:{fontSize:11.5,color:G.muted,marginTop:4}},
+          last?"Dernier bilan : "+fmtD(last.date):"Aucun bilan pour l'instant",
+          "  ·  Objectif : ",h("span",{style:{color:oi.color,fontWeight:800}},oi.label)
+        )
+      ),
+      h("button",{onClick:function(){setTab&&setTab("reglages");},
+        style:{background:G.bg2,border:"1px solid "+G.border,color:G.muted,width:34,height:34,borderRadius:10,fontSize:15,cursor:"pointer",flexShrink:0}},"⚙️")
     ),
 
-    // Tatanka Score
-    h(Card,{style:{display:"flex",alignItems:"center",gap:16}},
-      h("div",{style:{position:"relative",width:64,height:64,flexShrink:0}},
-        h("svg",{width:64,height:64,viewBox:"0 0 64 64",style:{transform:"rotate(-90deg)"}},
-          h("circle",{cx:32,cy:32,r:27,fill:"none",stroke:G.border,strokeWidth:6}),
-          tScore.score!=null?h("circle",{cx:32,cy:32,r:27,fill:"none",stroke:G.gold,strokeWidth:6,strokeLinecap:"round",
-            strokeDasharray:169.6,strokeDashoffset:169.6*(1-tScore.score/100)}):null
+    // Tatanka Score — élément principal de l'écran
+    (function(){
+      var tier=
+        daysSinceLast!=null&&daysSinceLast>10?{color:G.red,label:"PRIORITAIRE",emoji:"🔴"}:
+        tScore.score==null?{color:G.muted,label:"—",emoji:"⚪"}:
+        tScore.score>=85?{color:G.green,label:"EXCELLENT",emoji:"🟢"}:
+        tScore.score>=65?{color:G.blue,label:"BON",emoji:"🔵"}:
+        tScore.score>=40?{color:G.orange,label:"À SURVEILLER",emoji:"🟠"}:
+                          {color:G.red,label:"PRIORITAIRE",emoji:"🔴"};
+      var coachMsg=
+        daysSinceLast!=null&&daysSinceLast>10?"Il est temps de refaire un bilan.":
+        tScore.score==null?tScore.msg:
+        tScore.score>=65?"Tu progresses très bien.":
+        tScore.score>=40?"Attention, la tendance ralentit.":
+                          "Une légère correction permettra de repartir.";
+      return h(Card,{style:{display:"flex",alignItems:"center",gap:18}},
+        h("div",{style:{position:"relative",width:92,height:92,flexShrink:0}},
+          h("svg",{width:92,height:92,viewBox:"0 0 92 92",style:{transform:"rotate(-90deg)"}},
+            h("circle",{cx:46,cy:46,r:40,fill:"none",stroke:G.border,strokeWidth:8}),
+            tScore.score!=null?h("circle",{cx:46,cy:46,r:40,fill:"none",stroke:tier.color,strokeWidth:8,strokeLinecap:"round",
+              strokeDasharray:251.2,strokeDashoffset:251.2*(1-tScore.score/100)}):null
+          ),
+          h("div",{style:{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
+            h("b",{style:{fontSize:22,fontWeight:900,color:G.text}},tScore.score!=null?tScore.score:"–"),
+            h("small",{style:{fontSize:7,color:G.muted,letterSpacing:"0.04em"}},"/100")
+          )
         ),
-        h("div",{style:{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:900,color:G.text}},
-          tScore.score!=null?tScore.score:"–")
-      ),
-      h("div",{style:{flex:1}},
-        h("div",{style:{fontSize:12.5,fontWeight:800,color:G.text}},"Tatanka Score"+(tScore.score!=null?" — "+tScore.score+"/100":"")),
-        h("div",{style:{fontSize:11.5,color:G.muted,marginTop:3,lineHeight:1.4}},tScore.msg),
-        tScore.score!=null?h("div",{style:{fontSize:8.5,color:G.muted,marginTop:5,fontStyle:"italic"}},"Score indicatif, calcul simplifié"):null
-      )
-    ),
+        h("div",{style:{flex:1}},
+          h("div",{style:{display:"inline-flex",alignItems:"center",gap:5,fontSize:9,fontWeight:900,color:tier.color,letterSpacing:"0.06em",fontFamily:"monospace",marginBottom:6}},tier.emoji+" "+tier.label),
+          h("div",{style:{fontSize:13.5,fontWeight:800,color:G.text,lineHeight:1.35}},coachMsg),
+          tScore.score!=null?h("div",{style:{fontSize:8.5,color:G.muted,marginTop:6,fontStyle:"italic"}},"Score indicatif — régularité, tendance et objectif combinés"):null
+        )
+      );
+    })(),
 
     !last?h(Card,null,h("div",{style:{fontSize:12,color:G.muted,textAlign:"center",padding:"10px 0"}},"Aucun bilan enregistré pour l'instant.")):
     h("div",null,
@@ -653,10 +672,12 @@ function TabBilan(props){
             )
           ),
           h("div",{style:{flex:1,display:"flex",flexDirection:"column",gap:7}},
-            h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Objectif"),h("span",{style:{fontWeight:800,color:oi.color}},tgt.ideal+"% de masse grasse")),
+            h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Objectif"),h("span",{style:{fontWeight:800,color:oi.color}},bfCibleActive+"% de masse grasse")),
             h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Progression"),
               h("span",{style:{fontWeight:800,color:G.text}},(first&&first.bf!=null?first.bf:"–")+"% → "+(last.bf!=null?last.bf:"–")+"%")),
-            h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Poids actuel"),h("span",{style:{fontWeight:800,color:G.text}},last.poids!=null?last.poids+" kg":"–"))
+            PROFIL.poidsCible!=null?
+              h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Poids cible"),h("span",{style:{fontWeight:800,color:G.text}},PROFIL.poidsCible+" kg")):
+              h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Poids actuel"),h("span",{style:{fontWeight:800,color:G.text}},last.poids!=null?last.poids+" kg":"–"))
           )
         ),
         h("div",{style:{display:"flex",gap:10,marginTop:14,paddingTop:14,borderTop:"1px solid "+G.border}},
@@ -669,56 +690,62 @@ function TabBilan(props){
             h("small",{style:{fontSize:8,color:G.muted,letterSpacing:"0.06em",fontFamily:"monospace"}},"RESTE ESTIMÉ")
           )
         ),
-        h("div",{style:{marginTop:12,paddingTop:12,borderTop:"1px solid "+G.border,display:"flex",justifyContent:"space-between",alignItems:"center"}},
-          h("span",{style:{fontSize:11,color:G.muted}},"Poids estimé à l'objectif"),
-          h("span",{style:{fontSize:12.5,fontWeight:800,color:G.text}},estTargetWeight!=null?"~"+estTargetWeight+" kg":"–")
-        ),
-        h("div",{style:{marginTop:9,fontSize:9,color:G.muted,lineHeight:1.5,display:"flex",alignItems:"center",gap:5}},
+        h("div",{style:{marginTop:12,fontSize:9,color:G.muted,lineHeight:1.5,display:"flex",alignItems:"center",gap:5}},
           h("span",{style:{fontSize:8,fontWeight:900,letterSpacing:"0.06em",color:G.muted,border:"1px solid "+G.border,borderRadius:4,padding:"1px 5px",fontFamily:"monospace"}},"ESTIMATION"),
           "Basée sur ta tendance récente, pas une garantie."
         )
       ),
 
-      // Carte Résumé actuel
-      h(Card,null,
-        h(Lbl,null,"RÉSUMÉ ACTUEL"),
-        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
-          h("div",{style:{background:G.bg3,borderRadius:12,padding:"11px 12px"}},
-            h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace",letterSpacing:"0.08em",marginBottom:5}},"POIDS"),
-            h("div",{style:{fontSize:17,fontWeight:900,color:G.text}},last.poids!=null?last.poids:"–",h("small",{style:{fontSize:10,color:G.muted,fontWeight:600}}," kg")),
-            delta("poids",last,prev)!=null?h("div",{style:{fontSize:9.5,fontWeight:800,color:evoColor("poids",delta("poids",last,prev),obj),marginTop:4}},
-              (delta("poids",last,prev)>0?"↑ +":delta("poids",last,prev)<0?"↓ ":"→ ")+delta("poids",last,prev)+"kg depuis le dernier bilan"):null
-          ),
-          h("div",{style:{background:G.bg3,borderRadius:12,padding:"11px 12px"}},
-            h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace",letterSpacing:"0.08em",marginBottom:5}},"BODY FAT"),
-            h("div",{style:{fontSize:17,fontWeight:900,color:G.text}},last.bf!=null?last.bf:"–",h("small",{style:{fontSize:10,color:G.muted,fontWeight:600}}," %")),
-            delta("bf",last,prev)!=null?h("div",{style:{fontSize:9.5,fontWeight:800,color:evoColor("bf",delta("bf",last,prev),obj),marginTop:4}},
-              (delta("bf",last,prev)>0?"↑ +":delta("bf",last,prev)<0?"↓ ":"→ ")+delta("bf",last,prev)+"% depuis le dernier bilan"):null
-          )
-        ),
-        h("div",{style:{display:"flex",justifyContent:"space-between",marginTop:12,paddingTop:12,borderTop:"1px solid "+G.border,fontSize:10.5,color:G.muted}},
-          h("div",null,"Dernier bilan ",h("b",{style:{color:G.text}},fmtD(last.date))),
-          h("div",null,"Prochain rappel ",h("b",{style:{color:G.text}},fmtD(new Date(new Date(last.date).getTime()+7*86400000).toISOString().slice(0,10))))
+      // Bloc 4 — Progression : 4 grandes cartes
+      h("div",null,
+        h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em",marginBottom:10}},"PROGRESSION DEPUIS LE 1ᵉʳ BILAN"),
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}},
+          evoRows.map(function(r){
+            var d=delta(r.key,last,first);
+            var hist=histAsc.map(function(b){return b[r.key];});
+            var col=evoColor(r.key,d,obj);
+            return h("div",{key:r.key,style:{background:G.bg2,border:"1px solid "+G.border,borderRadius:14,padding:"13px 14px"}},
+              h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace",letterSpacing:"0.08em",marginBottom:8}},r.label.toUpperCase()),
+              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}},
+                h("div",null,
+                  h("div",{style:{fontSize:18,fontWeight:900,color:G.text}},last[r.key]!=null?last[r.key]:"–",last[r.key]!=null?h("small",{style:{fontSize:10,color:G.muted,fontWeight:600}}," "+r.unit):null),
+                  h("div",{style:{fontSize:10,fontWeight:800,color:col,marginTop:4}},d==null?"–":(d>0?"↑ +":d<0?"↓ ":"→ ")+Math.abs(d)+r.unit)
+                ),
+                h(Sparkline,{values:hist,color:r.color})
+              )
+            );
+          })
         )
       ),
 
-      // Carte Évolution depuis le premier bilan
-      h(Card,null,
-        h(Lbl,null,"ÉVOLUTION DEPUIS LE 1ᵉʳ BILAN"),
-        evoRows.map(function(r,i){
-          var d=delta(r.key,last,first);
-          var hist=histAsc.map(function(b){return b[r.key];});
-          return h("div",{key:r.key,style:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderTop:i>0?"1px solid "+G.border:"none"}},
-            h("div",{style:{display:"flex",alignItems:"center",gap:8,fontSize:12.5,color:G.text}},
-              h("span",{style:{width:6,height:6,borderRadius:"50%",background:r.color,flexShrink:0}}),r.label
-            ),
-            h("div",{style:{display:"flex",alignItems:"center",gap:10}},
-              h(Sparkline,{values:hist,color:r.color}),
-              h("div",{style:{fontWeight:900,fontSize:12.5,color:evoColor(r.key,d,obj),whiteSpace:"nowrap"}},
-                d==null?"–":(d>0?"↑ +":d<0?"↓ ":"→ ")+Math.abs(d)+r.unit)
-            )
-          );
-        })
+      // Bloc 5 — Analyse du coach (condensée, réutilise analyzeBB existant)
+      coachAlerts.length>0?(function(){
+        var top=coachAlerts.find(function(a){return a.type==="danger";})||coachAlerts.find(function(a){return a.type==="warn";})||coachAlerts[0];
+        var preview=coachAlerts.slice(0,3);
+        return h(Card,null,
+          h(Lbl,null,"ANALYSE DU COACH"),
+          preview.map(function(a,i){
+            var pill=a.type==="good"?"✅":a.type==="danger"?"🔴":a.type==="warn"?"⚠️":"ℹ️";
+            return h("div",{key:i,style:{display:"flex",gap:8,alignItems:"flex-start",padding:"5px 0",fontSize:12,color:G.text}},
+              h("span",null,pill),h("span",null,a.title)
+            );
+          }),
+          top?h("div",{style:{marginTop:10,paddingTop:10,borderTop:"1px solid "+G.border}},
+            h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.08em",marginBottom:5}},"POURQUOI ?"),
+            h("div",{style:{fontSize:11.5,color:G.text,lineHeight:1.5,marginBottom:top.actions&&top.actions.length?10:0}},top.msg),
+            top.actions&&top.actions.length?h("div",null,
+              h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.08em",marginBottom:5}},"QUE FAIRE ?"),
+              top.actions.slice(0,3).map(function(ac,j){
+                return h("div",{key:j,style:{display:"flex",gap:7,fontSize:11.5,color:G.text,padding:"2px 0",lineHeight:1.5}},h("span",{style:{color:G.gold}},"•"),ac);
+              })
+            ):null
+          ):null,
+          h("div",{onClick:function(){setTab&&setTab("analyse");},
+            style:{marginTop:12,fontSize:11,fontWeight:800,color:G.gold,cursor:"pointer"}},"Voir l'analyse complète →")
+        );
+      })():h(Card,null,
+        h(Lbl,null,"ANALYSE DU COACH"),
+        h("div",{style:{fontSize:12,color:G.text}},"✅ Continue à enregistrer tes bilans pour débloquer ton analyse personnalisée.")
       ),
 
       // Carte Photos
@@ -1492,6 +1519,39 @@ function TabReglages(props){
           a?h("div",{style:{fontSize:16,color:o.color}},"✓"):null
         );
       })
+    ),
+
+    // Cibles facultatives — jamais pré-remplies ni devinées par l'appli
+    h("div",{style:{fontSize:9,color:G.gold,fontFamily:"monospace",marginBottom:10}},"CIBLES (FACULTATIF)"),
+    h(Card,{style:{marginBottom:20}},
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+        h("div",null,
+          h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace",marginBottom:4}},"POIDS CIBLE (KG)"),
+          h("input",{type:"number",placeholder:"—",value:PROFIL.poidsCible!=null?PROFIL.poidsCible:"",
+            onChange:function(e){updProfil("poidsCible",e.target.value===""?null:parseFloat(e.target.value));},
+            style:{width:"100%",background:G.bg3,border:"1px solid "+G.border,color:G.text,borderRadius:8,padding:"9px 10px",fontSize:12,boxSizing:"border-box"}})
+        ),
+        h("div",null,
+          h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace",marginBottom:4}},"%MG CIBLE"),
+          h("input",{type:"number",placeholder:"—",value:PROFIL.bfCible!=null?PROFIL.bfCible:"",
+            onChange:function(e){updProfil("bfCible",e.target.value===""?null:parseFloat(e.target.value));},
+            style:{width:"100%",background:G.bg3,border:"1px solid "+G.border,color:G.text,borderRadius:8,padding:"9px 10px",fontSize:12,boxSizing:"border-box"}})
+        )
+      ),
+      h("div",{style:{fontSize:9,color:G.muted,lineHeight:1.5}},"Laisse vide si tu préfères t'en tenir à la plage recommandée automatiquement pour ton objectif. L'appli n'invente jamais de chiffre cible à ta place.")
+    ),
+
+    h("div",{style:{fontSize:9,color:G.gold,fontFamily:"monospace",marginBottom:10}},"NOTIFICATIONS"),
+    h(Card,{style:{marginBottom:20}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+        h("div",null,
+          h("div",{style:{fontSize:12,fontWeight:700,color:G.text}},"Rappel de bilan"),
+          h("div",{style:{fontSize:10,color:G.muted,marginTop:2}},"Signal dans l'app si plus de 10 jours sans bilan")
+        ),
+        h("button",{onClick:function(){updProfil("rappels",!PROFIL.rappels);},
+          style:{background:PROFIL.rappels!==false?G.gold+"22":G.bg3,border:"1px solid "+(PROFIL.rappels!==false?G.gold:G.border),color:PROFIL.rappels!==false?G.gold:G.muted,borderRadius:8,padding:"8px 14px",fontSize:11,fontWeight:800,cursor:"pointer"}},
+          PROFIL.rappels!==false?"ACTIVÉ":"DÉSACTIVÉ")
+      )
     ),
 
     h("div",{style:{fontSize:9,color:G.gold,fontFamily:"monospace",marginBottom:10}},"SAUVEGARDE"),
