@@ -558,8 +558,8 @@ function TabBilan(props){
   var tScore=calcTatankaScore(bilans,obj);
   var oi=OBJECTIFS.find(function(o){return o.id===obj;})||OBJECTIFS[1];
   var tgt=bfTarget(obj);
-  var lastPhoto=last?(pLoad(last.id,"face")||pLoad(last.id,"dos")||pLoad(last.id,"profil")):null;
-  var photoCount=bilans.filter(function(b){return pLoad(b.id,"face")||pLoad(b.id,"dos")||pLoad(b.id,"profil");}).length;
+  var lastPhoto=last?(pLoad(last.date,"face")||pLoad(last.date,"dos")||pLoad(last.date,"profil")):null;
+  var photoCount=bilans.filter(function(b){return pLoad(b.date,"face")||pLoad(b.date,"dos")||pLoad(b.date,"profil");}).length;
 
   // Estimation du poids cible : masse maigre actuelle projetée au %MG idéal de l'objectif (toujours indicatif)
   var estTargetWeight=(last&&last.mm!=null&&tgt.ideal)?rd(last.mm/(1-tgt.ideal/100)):null;
@@ -825,9 +825,9 @@ function TabNouveauBilan(props){
       mm:bf&&poids?rd(poids*(1-bf/100)):null,
       mg:bf&&poids?rd(poids*bf/100):null};
     MESURES.forEach(function(m){b[m.key]=form[m.key]?parseFloat(form[m.key]):null;});
-    if(photos.face)pSave(b.id,"face",photos.face);
-    if(photos.dos)pSave(b.id,"dos",photos.dos);
-    if(photos.profil)pSave(b.id,"profil",photos.profil);
+    if(photos.face)pSave(b.date,"face",photos.face);
+    if(photos.dos)pSave(b.date,"dos",photos.dos);
+    if(photos.profil)pSave(b.date,"profil",photos.profil);
     var updated=bilans.concat([b]);
     setBilans(updated);lsSet("bt_bilans",updated);
     if(props.session)cloudPushBilan(props.session.user.id,b);
@@ -1192,7 +1192,7 @@ function TabHistorique(props){
 
   if(sel){
     var b=sel;
-    var ph={face:pLoad(b.id,"face"),dos:pLoad(b.id,"dos"),profil:pLoad(b.id,"profil")};
+    var ph={face:pLoad(b.date,"face"),dos:pLoad(b.date,"dos"),profil:pLoad(b.date,"profil")};
     var hph=ph.face||ph.dos||ph.profil;
     return h("div",{style:{padding:"16px 16px 90px"}},
       pv?h("div",{onClick:function(){setPv(null);},style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.97)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center"}},
@@ -1240,7 +1240,7 @@ function TabHistorique(props){
     sorted.map(function(b,i){
       var next=sorted[i+1];
       var dp=b.poids&&next&&next.poids?rd(b.poids-next.poids):null;
-      var hph=pLoad(b.id,"face")||pLoad(b.id,"dos");
+      var hph=pLoad(b.date,"face")||pLoad(b.date,"dos");
       var oi=OBJECTIFS.find(function(o){return o.id===b.objectif;});
       var bCopy=b;
       return h(Card,{key:b.id,style:{cursor:"pointer"},onClick:function(){setSel(bCopy);}},
@@ -1290,7 +1290,7 @@ function TabComparaison(props){
   );
 
   var bA=bilans.find(function(b){return b.id===aId;}),bB=bilans.find(function(b){return b.id===bId;});
-  var pA=bA?pLoad(bA.id,ang):null,pB=bB?pLoad(bB.id,ang):null;
+  var pA=bA?pLoad(bA.date,ang):null,pB=bB?pLoad(bB.date,ang):null;
 
   return h("div",{style:{padding:"16px 16px 90px"}},
     h("div",{style:{marginBottom:18}},
