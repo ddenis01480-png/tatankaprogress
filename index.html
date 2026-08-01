@@ -616,22 +616,56 @@ function TabBilan(props){
   var impactBF=rhythmCompare("bf");
   var daysSinceLast=Math.max(0,Math.round((new Date(todayStr())-new Date(last.date))/86400000));
 
+  // Tatanka Score (réintégré dans l'anneau de synthèse)
+  var tScore=calcTatankaScore(bilans,obj);
+
+  // Objectif — priorité au %MG, jamais de poids cible inventé
+  var oi=OBJECTIFS.find(function(o){return o.id===obj;})||OBJECTIFS[1];
+  var tgt=bfTarget(obj);
+  var bfCibleActive=PROFIL.bfCible!=null?PROFIL.bfCible:tgt.ideal;
+  var bfProgressPct=null;
+  if(first&&first.bf!=null&&last.bf!=null&&bfCibleActive!=null&&first.bf!==bfCibleActive){
+    bfProgressPct=Math.max(0,Math.min(100,Math.round(((first.bf-last.bf)/(first.bf-bfCibleActive))*100)));
+  }
+  var weeksRangeLabel=null;
+  if(first&&first.date!==last.date&&first.bf!=null&&last.bf!=null&&bfCibleActive!=null){
+    var totalDays=Math.max(1,(new Date(last.date)-new Date(first.date))/86400000);
+    var weeklyBFRate=(last.bf-first.bf)/(totalDays/7);
+    var bfToGo=bfCibleActive-last.bf;
+    if(weeklyBFRate!==0&&(bfToGo>0)===(weeklyBFRate>0)){
+      var weeksBase=Math.abs(bfToGo/weeklyBFRate);
+      if(weeksBase<1){weeksRangeLabel="moins d'1 semaine";}
+      else{
+        var lowW=Math.max(1,Math.floor(weeksBase*0.75));
+        var highW=Math.max(lowW+1,Math.ceil(weeksBase*1.25));
+        weeksRangeLabel="~"+lowW+" à "+highW+" semaines";
+      }
+    }
+  }
+
+  // Photos
+  var lastPhoto=pLoad(last.date,"face")||pLoad(last.date,"dos")||pLoad(last.date,"profil");
+  var photoCount=bilans.filter(function(b){return pLoad(b.date,"face")||pLoad(b.date,"dos")||pLoad(b.date,"profil");}).length;
+
   return h("div",{style:{padding:"16px 16px 110px"}},
 
-    // Synthèse
+    // Synthèse + Tatanka Score (anneau fusionné)
     h(Card,null,
       h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:2}},
         h("span",{style:{width:6,height:6,borderRadius:"50%",background:G.gold,flexShrink:0}}),
         h(Lbl,{style:{margin:0}},"ANALYSE DE TES "+bilans.length+" DERNIERS BILANS")
       ),
       h("div",{style:{display:"flex",gap:16,alignItems:"center",marginTop:8}},
-        h("div",{style:{position:"relative",width:74,height:74,flexShrink:0}},
-          h("svg",{width:74,height:74,viewBox:"0 0 74 74",style:{transform:"rotate(-90deg)"}},
-            h("circle",{cx:37,cy:37,r:31,fill:"none",stroke:G.border,strokeWidth:6}),
-            h("circle",{cx:37,cy:37,r:31,fill:"none",stroke:statusTier.color,strokeWidth:6,strokeLinecap:"round",
-              strokeDasharray:194.8,strokeDashoffset:194.8*(1-statusTier.ring/100)})
+        h("div",{style:{position:"relative",width:80,height:80,flexShrink:0}},
+          h("svg",{width:80,height:80,viewBox:"0 0 80 80",style:{transform:"rotate(-90deg)"}},
+            h("circle",{cx:40,cy:40,r:34,fill:"none",stroke:G.border,strokeWidth:7}),
+            h("circle",{cx:40,cy:40,r:34,fill:"none",stroke:statusTier.color,strokeWidth:7,strokeLinecap:"round",
+              strokeDasharray:213.6,strokeDashoffset:213.6*(1-(tScore.score!=null?tScore.score:statusTier.ring)/100)})
           ),
-          h("div",{style:{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}},statusTier.emoji)
+          h("div",{style:{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
+            h("b",{style:{fontSize:19,fontWeight:900,color:G.text}},tScore.score!=null?tScore.score:statusTier.emoji),
+            tScore.score!=null?h("small",{style:{fontSize:7,color:G.muted}},"/100"):null
+          )
         ),
         h("div",{style:{flex:1}},
           h("div",{style:{fontSize:15,fontWeight:900,color:statusTier.color}},statusTier.label),
@@ -641,7 +675,33 @@ function TabBilan(props){
       trend?h("div",{style:{display:"flex",gap:8,marginTop:12,paddingTop:12,borderTop:"1px solid "+G.border,fontSize:11.5,color:G.text,lineHeight:1.5}},
         h("span",null,trend.icon),
         h("span",null,h("b",{style:{color:G.gold}},trend.label+" — "),trend.text)
-      ):null
+      ):null,
+      h("div",{style:{display:"flex",alignItems:"center",gap:8,marginTop:12,paddingTop:12,borderTop:"1px solid "+G.border,fontSize:10.5,color:G.muted}},
+        "🗓 ",h("span",null,"Prochain bilan recommandé : ",h("b",{style:{color:daysSinceLast>10?G.orange:G.text}},fmtD(new Date(new Date(last.date).getTime()+7*86400000).toISOString().slice(0,10))))
+      )
+    ),
+
+    // Objectif — priorité à la composition corporelle, jamais de poids cible inventé
+    h(Card,null,
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}},
+        h(Lbl,{style:{margin:0}},"OBJECTIF EN COURS"),
+        h("div",{style:{display:"inline-flex",alignItems:"center",gap:6,background:oi.color+"1f",border:"1px solid "+oi.color+"44",color:oi.color,fontWeight:900,fontSize:12,padding:"4px 10px",borderRadius:20}},oi.icon+" "+oi.label)
+      ),
+      h("div",{style:{display:"flex",alignItems:"center",gap:14}},
+        h("div",{style:{position:"relative",width:56,height:56,flexShrink:0}},
+          h("svg",{width:56,height:56,viewBox:"0 0 56 56",style:{transform:"rotate(-90deg)"}},
+            h("circle",{cx:28,cy:28,r:23,fill:"none",stroke:G.border,strokeWidth:6}),
+            bfProgressPct!=null?h("circle",{cx:28,cy:28,r:23,fill:"none",stroke:oi.color,strokeWidth:6,strokeLinecap:"round",
+              strokeDasharray:144.5,strokeDashoffset:144.5*(1-bfProgressPct/100)}):null
+          ),
+          h("div",{style:{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:900,color:G.text}},bfProgressPct!=null?bfProgressPct+"%":"–")
+        ),
+        h("div",{style:{flex:1,display:"flex",flexDirection:"column",gap:5}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Cible %MG"),h("span",{style:{fontWeight:800,color:oi.color}},bfCibleActive+"%")),
+          h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Progression"),h("span",{style:{fontWeight:800,color:G.text}},(first&&first.bf!=null?first.bf:"–")+"% → "+(last.bf!=null?last.bf:"–")+"%")),
+          h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Reste estimé"),h("span",{style:{fontWeight:800,color:G.text}},weeksRangeLabel||"–"))
+        )
+      )
     ),
 
     // Action prioritaire
@@ -674,6 +734,22 @@ function TabBilan(props){
         })
       )
     ):null,
+
+    // Photos
+    h(Card,null,
+      h(Lbl,null,"PHOTOS D'ÉVOLUTION"),
+      h("div",{style:{display:"flex",gap:12,alignItems:"center"}},
+        h("div",{style:{width:52,height:65,borderRadius:9,overflow:"hidden",background:G.bg3,border:"1px solid "+G.border,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}},
+          lastPhoto?h("img",{src:lastPhoto,style:{width:"100%",height:"100%",objectFit:"cover"}}):h("div",{style:{fontSize:18,color:G.muted}},"📷")
+        ),
+        h("div",{style:{flex:1}},
+          h("div",{style:{fontSize:10.5,color:G.muted,marginBottom:2}},"Dernière photo — "+fmtD(last.date)),
+          h("div",{style:{fontSize:10.5,color:G.gold,fontWeight:800,marginBottom:9}},photoCount+" photo"+(photoCount>1?"s":"")+" enregistrée"+(photoCount>1?"s":"")),
+          h("button",{onClick:function(){setTab&&setTab("compa");},
+            style:{background:G.bg3,border:"1px solid "+G.border,color:G.text,fontSize:11,fontWeight:800,padding:"9px 13px",borderRadius:9,cursor:"pointer"}},"🔀 Comparer Avant / Après")
+        )
+      )
+    ),
 
     // Impact estimé — données réellement dérivées
     (impactPoids||impactBF)?h(Card,null,
