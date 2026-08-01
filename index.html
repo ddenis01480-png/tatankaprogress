@@ -554,235 +554,156 @@ function TabBilan(props){
   var first=sortedAsc.length>0?sortedAsc[0]:null;
   var last=sortedDesc.length>0?sortedDesc[0]:null;
   var prev=sortedDesc.length>1?sortedDesc[1]:null;
-  var histAsc=sortedAsc.slice(-6);
-  var tScore=calcTatankaScore(bilans,obj);
-  var coachAlerts=analyzeBB(bilans,obj);
-  var oi=OBJECTIFS.find(function(o){return o.id===obj;})||OBJECTIFS[1];
-  var tgt=bfTarget(obj);
-  var lastPhoto=last?(pLoad(last.date,"face")||pLoad(last.date,"dos")||pLoad(last.date,"profil")):null;
-  var photoCount=bilans.filter(function(b){return pLoad(b.date,"face")||pLoad(b.date,"dos")||pLoad(b.date,"profil");}).length;
 
-  var daysEcoules=first?Math.max(0,Math.round((new Date(todayStr())-new Date(first.date))/86400000)):null;
-  var bfCibleActive=PROFIL.bfCible!=null?PROFIL.bfCible:tgt.ideal;
-
-  // Progression vers l'objectif basée sur le %MG (physique), pas sur le poids
-  var bfProgressPct=null;
-  if(first&&first.bf!=null&&last&&last.bf!=null&&bfCibleActive!=null&&first.bf!==bfCibleActive){
-    bfProgressPct=Math.max(0,Math.min(100,Math.round(((first.bf-last.bf)/(first.bf-bfCibleActive))*100)));
+  if(!last){
+    return h("div",{style:{padding:"16px 16px 110px"}},
+      h(Card,null,h("div",{style:{fontSize:12,color:G.muted,textAlign:"center",padding:"10px 0"}},"Aucun bilan enregistré pour l'instant.")),
+      h("div",{style:{position:"fixed",left:"50%",transform:"translateX(-50%)",bottom:76,width:"100%",maxWidth:480,padding:"0 16px",zIndex:20}},
+        h("button",{onClick:function(){setShowForm(true);},
+          style:{width:"100%",background:"linear-gradient(135deg,"+G.gold+","+G.goldDim+")",border:"none",color:"#fff",fontWeight:900,fontSize:15,padding:16,borderRadius:14,cursor:"pointer",boxShadow:"0 10px 28px -8px rgba(47,124,246,.55)"}},
+          "➕ Nouveau bilan")
+      )
+    );
   }
 
-  // Estimation du temps restant, en semaines et sous forme de plage (jamais un nombre de jours exact)
-  var weeksRangeLabel=null;
-  if(first&&last&&first.date!==last.date&&first.bf!=null&&last.bf!=null&&bfCibleActive!=null){
-    var totalDays=Math.max(1,(new Date(last.date)-new Date(first.date))/86400000);
-    var weeklyBFRate=(last.bf-first.bf)/(totalDays/7);
-    var bfToGo=bfCibleActive-last.bf;
-    // On n'estime que si le rythme actuel va bien dans le sens de l'objectif
-    if(weeklyBFRate!==0&&(bfToGo>0)===(weeklyBFRate>0)){
-      var weeksBase=Math.abs(bfToGo/weeklyBFRate);
-      if(weeksBase<1){weeksRangeLabel="moins d'1 semaine";}
-      else{
-        var lowW=Math.max(1,Math.floor(weeksBase*0.75));
-        var highW=Math.max(lowW+1,Math.ceil(weeksBase*1.25));
-        weeksRangeLabel="~"+lowW+" à "+highW+" semaines";
-      }
+  var alerts=analyzeBB(bilans,obj);
+  var nDanger=alerts.filter(function(a){return a.type==="danger";}).length;
+  var nWarn=alerts.filter(function(a){return a.type==="warn";}).length;
+  var nGood=alerts.filter(function(a){return a.type==="good";}).length;
+  var statusTier=
+    nDanger>0?{emoji:"🔴",label:"Réévaluation nécessaire",color:G.red,ring:22}:
+    nWarn>0  ?{emoji:"🟠",label:"Progression à corriger",color:G.orange,ring:50}:
+    nGood>=2 ?{emoji:"✅",label:"Très bonne progression",color:G.green,ring:92}:
+              {emoji:"🟡",label:"Bonne progression",color:"#e0ab30",ring:72};
+
+  var trend=null;
+  if(prev){
+    var dP=last.poids!=null&&prev.poids!=null?rd(last.poids-prev.poids):null;
+    var dMG=last.mg!=null&&prev.mg!=null?rd(last.mg-prev.mg):null;
+    var dMM=last.mm!=null&&prev.mm!=null?rd(last.mm-prev.mm):null;
+    if(dP!=null&&dP<0&&dMG!=null&&dMG<0){
+      var pctFat=Math.min(100,Math.round((dMG/dP)*100));
+      trend=pctFat>=75?
+        {icon:"📈",label:"En amélioration",text:"Depuis ton dernier bilan, ta perte de graisse est plus importante que ta perte de poids, signe d'une bonne préservation musculaire."}:
+        {icon:"📉",label:"À surveiller",text:"Une partie de ta perte récente touche aussi la masse maigre — vérifie tes apports en protéines."};
+    }else if(dP!=null&&dP>0&&dMM!=null&&dMM>0){
+      trend={icon:"📈",label:"En amélioration",text:"Ta prise de poids récente s'accompagne d'un gain de masse musculaire — bon signe pour un objectif de prise de muscle."};
+    }else if(dP!=null&&Math.abs(dP)<0.3){
+      trend={icon:"➡️",label:"Stable",text:"Ton poids est quasi stable depuis le dernier bilan — regarde plutôt le %MG et les mensurations pour juger de ta progression."};
     }
   }
 
-  var evoRows=[
-    {key:"poids", label:"Poids",          unit:"kg",color:G.blue},
-    {key:"bf",    label:"Body Fat",       unit:"%", color:G.green},
-    {key:"mm",    label:"Masse musc.",    unit:"kg",color:G.purple},
-    {key:"taille",label:"Tour de taille", unit:"cm",color:G.orange}
-  ];
+  var priorityAlert=alerts.find(function(a){return a.type==="danger";})||alerts.find(function(a){return a.type==="warn";})||null;
+  var otherAlerts=alerts.filter(function(a){return a!==priorityAlert;});
+  var badgeFor={danger:{emoji:"🔴",label:"PRIORITÉ ÉLEVÉE"},warn:{emoji:"🟠",label:"À SURVEILLER"},good:{emoji:"🟢",label:"PROGRESSION POSITIVE"},info:{emoji:"🔵",label:"INFO"}};
 
-  function delta(key,a,b){return(a&&b&&a[key]!=null&&b[key]!=null)?rd(a[key]-b[key]):null;}
-
-  var daysSinceLast=last?Math.max(0,Math.round((new Date(todayStr())-new Date(last.date))/86400000)):null;
+  // Impact estimé — comparaison honnête du rythme récent vs rythme moyen, rien d'inventé
+  function weeklyRate(key,a,b){
+    if(!a||!b||a[key]==null||b[key]==null)return null;
+    var days=Math.max(1,(new Date(b.date)-new Date(a.date))/86400000);
+    return (b[key]-a[key])/(days/7);
+  }
+  function rhythmCompare(key){
+    if(!prev||!first)return null;
+    var recent=weeklyRate(key,prev,last);
+    var overall=weeklyRate(key,first,last);
+    if(recent==null||overall==null)return null;
+    var diff=Math.abs(recent)-Math.abs(overall);
+    if(Math.abs(diff)<0.05*Math.max(1,Math.abs(overall)))return{label:"→ stable",color:G.text};
+    return diff>0?{label:"↑ accéléré",color:G.orange}:{label:"↓ ralenti",color:G.green};
+  }
+  var impactPoids=rhythmCompare("poids");
+  var impactBF=rhythmCompare("bf");
+  var daysSinceLast=Math.max(0,Math.round((new Date(todayStr())-new Date(last.date))/86400000));
 
   return h("div",{style:{padding:"16px 16px 110px"}},
 
-    h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}},
-      h("div",null,
-        h("h2",{style:{margin:0,fontSize:20,fontWeight:900,color:G.text}},"Bonjour 👋"),
-        h("div",{style:{fontSize:11.5,color:G.muted,marginTop:4}},
-          last?"Dernier bilan : "+fmtD(last.date):"Aucun bilan pour l'instant",
-          "  ·  Objectif : ",h("span",{style:{color:oi.color,fontWeight:800}},oi.label)
-        )
+    // Synthèse
+    h(Card,null,
+      h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:2}},
+        h("span",{style:{width:6,height:6,borderRadius:"50%",background:G.gold,flexShrink:0}}),
+        h(Lbl,{style:{margin:0}},"ANALYSE DE TES "+bilans.length+" DERNIERS BILANS")
       ),
-      h("button",{onClick:function(){setTab&&setTab("reglages");},
-        style:{background:G.bg2,border:"1px solid "+G.border,color:G.muted,width:34,height:34,borderRadius:10,fontSize:15,cursor:"pointer",flexShrink:0}},"⚙️")
-    ),
-
-    // Tatanka Score — élément principal de l'écran
-    (function(){
-      var tier=
-        daysSinceLast!=null&&daysSinceLast>10?{color:G.red,label:"PRIORITAIRE",emoji:"🔴"}:
-        tScore.score==null?{color:G.muted,label:"—",emoji:"⚪"}:
-        tScore.score>=85?{color:G.green,label:"EXCELLENT",emoji:"🟢"}:
-        tScore.score>=65?{color:G.blue,label:"BON",emoji:"🔵"}:
-        tScore.score>=40?{color:G.orange,label:"À SURVEILLER",emoji:"🟠"}:
-                          {color:G.red,label:"PRIORITAIRE",emoji:"🔴"};
-      var coachMsg=
-        daysSinceLast!=null&&daysSinceLast>10?"Il est temps de refaire un bilan.":
-        tScore.score==null?tScore.msg:
-        tScore.score>=65?"Tu progresses très bien.":
-        tScore.score>=40?"Attention, la tendance ralentit.":
-                          "Une légère correction permettra de repartir.";
-      return h(Card,{style:{display:"flex",alignItems:"center",gap:18}},
-        h("div",{style:{position:"relative",width:92,height:92,flexShrink:0}},
-          h("svg",{width:92,height:92,viewBox:"0 0 92 92",style:{transform:"rotate(-90deg)"}},
-            h("circle",{cx:46,cy:46,r:40,fill:"none",stroke:G.border,strokeWidth:8}),
-            tScore.score!=null?h("circle",{cx:46,cy:46,r:40,fill:"none",stroke:tier.color,strokeWidth:8,strokeLinecap:"round",
-              strokeDasharray:251.2,strokeDashoffset:251.2*(1-tScore.score/100)}):null
+      h("div",{style:{display:"flex",gap:16,alignItems:"center",marginTop:8}},
+        h("div",{style:{position:"relative",width:74,height:74,flexShrink:0}},
+          h("svg",{width:74,height:74,viewBox:"0 0 74 74",style:{transform:"rotate(-90deg)"}},
+            h("circle",{cx:37,cy:37,r:31,fill:"none",stroke:G.border,strokeWidth:6}),
+            h("circle",{cx:37,cy:37,r:31,fill:"none",stroke:statusTier.color,strokeWidth:6,strokeLinecap:"round",
+              strokeDasharray:194.8,strokeDashoffset:194.8*(1-statusTier.ring/100)})
           ),
-          h("div",{style:{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
-            h("b",{style:{fontSize:22,fontWeight:900,color:G.text}},tScore.score!=null?tScore.score:"–"),
-            h("small",{style:{fontSize:7,color:G.muted,letterSpacing:"0.04em"}},"/100")
-          )
+          h("div",{style:{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}},statusTier.emoji)
         ),
         h("div",{style:{flex:1}},
-          h("div",{style:{display:"inline-flex",alignItems:"center",gap:5,fontSize:9,fontWeight:900,color:tier.color,letterSpacing:"0.06em",fontFamily:"monospace",marginBottom:6}},tier.emoji+" "+tier.label),
-          h("div",{style:{fontSize:13.5,fontWeight:800,color:G.text,lineHeight:1.35}},coachMsg),
-          tScore.score!=null?h("div",{style:{fontSize:8.5,color:G.muted,marginTop:6,fontStyle:"italic"}},"Score indicatif — régularité, tendance et objectif combinés"):null
-        )
-      );
-    })(),
-
-    !last?h(Card,null,h("div",{style:{fontSize:12,color:G.muted,textAlign:"center",padding:"10px 0"}},"Aucun bilan enregistré pour l'instant.")):
-    h("div",null,
-
-      // Carte Objectif — priorité à la composition corporelle, pas au poids
-      h(Card,null,
-        h(Lbl,null,"OBJECTIF EN COURS"),
-        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}},
-          h("div",{style:{display:"inline-flex",alignItems:"center",gap:6,background:oi.color+"1f",border:"1px solid "+oi.color+"44",color:oi.color,fontWeight:900,fontSize:13,padding:"5px 11px",borderRadius:20}},oi.icon+" "+oi.label),
-          h("div",{style:{fontSize:9.5,color:G.muted,textAlign:"right",lineHeight:1.5}},"Débuté le",h("br"),h("b",{style:{color:G.text}},first?fmtD(first.date):"–"))
-        ),
-        h("div",{style:{display:"flex",alignItems:"center",gap:16}},
-          h("div",{style:{position:"relative",width:74,height:74,flexShrink:0}},
-            h("svg",{width:74,height:74,viewBox:"0 0 74 74",style:{transform:"rotate(-90deg)"}},
-              h("circle",{cx:37,cy:37,r:31,fill:"none",stroke:G.border,strokeWidth:7}),
-              bfProgressPct!=null?h("circle",{cx:37,cy:37,r:31,fill:"none",stroke:oi.color,strokeWidth:7,strokeLinecap:"round",
-                strokeDasharray:194.8,strokeDashoffset:194.8*(1-bfProgressPct/100)}):null
-            ),
-            h("div",{style:{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
-              h("b",{style:{fontSize:16,fontWeight:900,color:G.text}},bfProgressPct!=null?bfProgressPct+"%":"–"),
-              h("small",{style:{fontSize:6.5,color:G.muted,letterSpacing:"0.02em",marginTop:1,textAlign:"center",lineHeight:1.1}},"VERS TON",h("br"),"OBJECTIF %MG")
-            )
-          ),
-          h("div",{style:{flex:1,display:"flex",flexDirection:"column",gap:7}},
-            h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Objectif"),h("span",{style:{fontWeight:800,color:oi.color}},bfCibleActive+"% de masse grasse")),
-            h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Progression"),
-              h("span",{style:{fontWeight:800,color:G.text}},(first&&first.bf!=null?first.bf:"–")+"% → "+(last.bf!=null?last.bf:"–")+"%")),
-            PROFIL.poidsCible!=null?
-              h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Poids cible"),h("span",{style:{fontWeight:800,color:G.text}},PROFIL.poidsCible+" kg")):
-              h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:12}},h("span",{style:{color:G.muted}},"Poids actuel"),h("span",{style:{fontWeight:800,color:G.text}},last.poids!=null?last.poids+" kg":"–"))
-          )
-        ),
-        h("div",{style:{display:"flex",gap:10,marginTop:14,paddingTop:14,borderTop:"1px solid "+G.border}},
-          h("div",{style:{flex:1,background:G.bg3,borderRadius:10,padding:"9px 10px",textAlign:"center"}},
-            h("b",{style:{display:"block",fontSize:15,fontWeight:900,color:G.text}},daysEcoules!=null?daysEcoules:"–"),
-            h("small",{style:{fontSize:8,color:G.muted,letterSpacing:"0.06em",fontFamily:"monospace"}},"JOURS ÉCOULÉS")
-          ),
-          h("div",{style:{flex:1,background:G.bg3,borderRadius:10,padding:"9px 10px",textAlign:"center"}},
-            h("b",{style:{display:"block",fontSize:12.5,fontWeight:900,color:G.text,lineHeight:1.2}},weeksRangeLabel||"–"),
-            h("small",{style:{fontSize:8,color:G.muted,letterSpacing:"0.06em",fontFamily:"monospace"}},"RESTE ESTIMÉ")
-          )
-        ),
-        h("div",{style:{marginTop:12,fontSize:9,color:G.muted,lineHeight:1.5,display:"flex",alignItems:"center",gap:5}},
-          h("span",{style:{fontSize:8,fontWeight:900,letterSpacing:"0.06em",color:G.muted,border:"1px solid "+G.border,borderRadius:4,padding:"1px 5px",fontFamily:"monospace"}},"ESTIMATION"),
-          "Basée sur ta tendance récente, pas une garantie."
+          h("div",{style:{fontSize:15,fontWeight:900,color:statusTier.color}},statusTier.label),
+          h("div",{style:{fontSize:11,color:G.muted,marginTop:3}},"Dernier bilan : "+fmtD(last.date))
         )
       ),
-
-      // Bloc 4 — Progression : 4 grandes cartes
-      h("div",null,
-        h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em",marginBottom:10}},"PROGRESSION DEPUIS LE 1ᵉʳ BILAN"),
-        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}},
-          evoRows.map(function(r){
-            var d=delta(r.key,last,first);
-            var hist=histAsc.map(function(b){return b[r.key];});
-            var col=evoColor(r.key,d,obj);
-            return h("div",{key:r.key,style:{background:G.bg2,border:"1px solid "+G.border,borderRadius:14,padding:"13px 14px"}},
-              h("div",{style:{fontSize:8,color:G.muted,fontFamily:"monospace",letterSpacing:"0.08em",marginBottom:8}},r.label.toUpperCase()),
-              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}},
-                h("div",null,
-                  h("div",{style:{fontSize:18,fontWeight:900,color:G.text}},last[r.key]!=null?last[r.key]:"–",last[r.key]!=null?h("small",{style:{fontSize:10,color:G.muted,fontWeight:600}}," "+r.unit):null),
-                  h("div",{style:{fontSize:10,fontWeight:800,color:col,marginTop:4}},d==null?"–":(d>0?"↑ +":d<0?"↓ ":"→ ")+Math.abs(d)+r.unit)
-                ),
-                h(Sparkline,{values:hist,color:r.color})
-              )
-            );
-          })
-        )
-      ),
-
-      // Bloc 5 — Analyse du coach (condensée, réutilise analyzeBB existant)
-      coachAlerts.length>0?(function(){
-        var top=coachAlerts.find(function(a){return a.type==="danger";})||coachAlerts.find(function(a){return a.type==="warn";})||coachAlerts[0];
-        var preview=coachAlerts.slice(0,3);
-        return h(Card,null,
-          h(Lbl,null,"ANALYSE DU COACH"),
-          preview.map(function(a,i){
-            var pill=a.type==="good"?"✅":a.type==="danger"?"🔴":a.type==="warn"?"⚠️":"ℹ️";
-            return h("div",{key:i,style:{display:"flex",gap:8,alignItems:"flex-start",padding:"5px 0",fontSize:12,color:G.text}},
-              h("span",null,pill),h("span",null,a.title)
-            );
-          }),
-          top?h("div",{style:{marginTop:10,paddingTop:10,borderTop:"1px solid "+G.border}},
-            h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.08em",marginBottom:5}},"POURQUOI ?"),
-            h("div",{style:{fontSize:11.5,color:G.text,lineHeight:1.5,marginBottom:top.actions&&top.actions.length?10:0}},top.msg),
-            top.actions&&top.actions.length?h("div",null,
-              h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.08em",marginBottom:5}},"QUE FAIRE ?"),
-              top.actions.slice(0,3).map(function(ac,j){
-                return h("div",{key:j,style:{display:"flex",gap:7,fontSize:11.5,color:G.text,padding:"2px 0",lineHeight:1.5}},h("span",{style:{color:G.gold}},"•"),ac);
-              })
-            ):null
-          ):null,
-          h("div",{onClick:function(){setTab&&setTab("analyse");},
-            style:{marginTop:12,fontSize:11,fontWeight:800,color:G.gold,cursor:"pointer"}},"Voir l'analyse complète →")
-        );
-      })():h(Card,null,
-        h(Lbl,null,"ANALYSE DU COACH"),
-        h("div",{style:{fontSize:12,color:G.text}},"✅ Continue à enregistrer tes bilans pour débloquer ton analyse personnalisée.")
-      ),
-
-      // Carte Photos
-      h(Card,null,
-        h(Lbl,null,"PHOTOS D'ÉVOLUTION"),
-        h("div",{style:{display:"flex",gap:12,alignItems:"center"}},
-          h("div",{style:{width:56,height:70,borderRadius:9,overflow:"hidden",background:G.bg3,border:"1px solid "+G.border,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}},
-            lastPhoto?h("img",{src:lastPhoto,style:{width:"100%",height:"100%",objectFit:"cover"}}):h("div",{style:{fontSize:18,color:G.muted}},"📷")
-          ),
-          h("div",{style:{flex:1}},
-            h("div",{style:{fontSize:10.5,color:G.muted,marginBottom:2}},last?"Dernière photo — "+fmtD(last.date):"Aucune photo pour l'instant"),
-            h("div",{style:{fontSize:10.5,color:G.gold,fontWeight:800,marginBottom:9}},photoCount+" photo"+(photoCount>1?"s":"")+" enregistrée"+(photoCount>1?"s":"")),
-            h("button",{onClick:function(){setTab&&setTab("compa");},
-              style:{background:G.bg3,border:"1px solid "+G.border,color:G.text,fontSize:11,fontWeight:800,padding:"9px 13px",borderRadius:9,cursor:"pointer"}},"🔀 Comparer Avant / Après")
-          )
-        )
-      ),
-
-      // Carte Tatanka AI
-      h(Card,{style:{position:"relative",overflow:"hidden",opacity:0.9}},
-        h("div",{style:{display:"flex",alignItems:"center",gap:10}},
-          h("div",{style:{width:34,height:34,borderRadius:9,background:G.bg3,border:"1px solid "+G.border,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}},"✦"),
-          h("div",{style:{fontWeight:900,fontSize:14,color:G.text}},"Tatanka AI"),
-          h("div",{style:{marginLeft:"auto",fontSize:9,letterSpacing:"0.1em",fontWeight:800,color:G.purple,background:G.purple+"1f",border:"1px solid "+G.purple+"4d",padding:"3px 8px",borderRadius:20,fontFamily:"monospace"}},"BIENTÔT")
-        ),
-        h("div",{style:{fontSize:11.5,color:G.muted,marginTop:10,lineHeight:1.5}},"Ton coach personnel analysera tes bilans pour affiner tes objectifs automatiquement.")
-      ),
-
-      // Accès aux archives
-      h("div",{onClick:function(){setTab&&setTab("historique");},
-        style:{background:G.bg2,border:"1px solid "+G.border,borderRadius:14,padding:"13px 15px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:10}},
-        h("div",{style:{fontSize:12.5,fontWeight:700,color:G.text}},"📚 Voir toutes tes archives"),
-        h("div",{style:{color:G.muted,fontSize:14}},"›")
-      )
+      trend?h("div",{style:{display:"flex",gap:8,marginTop:12,paddingTop:12,borderTop:"1px solid "+G.border,fontSize:11.5,color:G.text,lineHeight:1.5}},
+        h("span",null,trend.icon),
+        h("span",null,h("b",{style:{color:G.gold}},trend.label+" — "),trend.text)
+      ):null
     ),
 
-    // Bouton flottant Nouveau bilan
+    // Action prioritaire
+    priorityAlert?h(Card,{style:{borderLeft:"3px solid "+priorityAlert.color}},
+      h("div",{style:{fontSize:9,letterSpacing:"0.1em",fontWeight:900,color:priorityAlert.color,fontFamily:"monospace",marginBottom:8}},
+        badgeFor[priorityAlert.type].emoji+" ACTION PRIORITAIRE"),
+      h("div",{style:{fontSize:15,fontWeight:800,marginBottom:12,lineHeight:1.35}},priorityAlert.title),
+      h(Lbl,null,"POURQUOI ?"),
+      h("div",{style:{fontSize:12,color:G.text,lineHeight:1.6,marginBottom:priorityAlert.actions&&priorityAlert.actions.length?12:0}},priorityAlert.msg),
+      priorityAlert.actions&&priorityAlert.actions.length?h("ul",{style:{margin:"0 0 12px",padding:0,listStyle:"none",fontSize:12,color:G.text}},
+        priorityAlert.actions.map(function(ac,j){
+          return h("li",{key:j,style:{display:"flex",gap:8,padding:"4px 0",lineHeight:1.5}},
+            h("span",{style:{color:priorityAlert.color,fontWeight:900}},"•"),ac);
+        })
+      ):null,
+      h("div",{style:{display:"flex",alignItems:"center",gap:8,background:G.bg3,borderRadius:9,padding:"9px 11px",fontSize:11,color:G.muted}},
+        "🗓 ",h("span",null,"À contrôler : ",h("b",{style:{color:G.text}},"nouveau bilan dans 7 jours")))
+    ):
+    alerts.length>0?h(Card,{style:{background:G.green+"0d",border:"1px solid "+G.green+"33"}},
+      h("div",{style:{fontSize:13,fontWeight:800,color:G.green}},"✓ Rien d'urgent à corriger — continue ainsi.")
+    ):null,
+
+    // Toutes les recommandations
+    otherAlerts.length>0?h("div",{style:{marginTop:4}},
+      h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.1em",marginBottom:10}},"TOUTES LES RECOMMANDATIONS"),
+      h(Card,{style:{padding:0,overflow:"hidden"}},
+        otherAlerts.map(function(a,i){
+          var b=badgeFor[a.type]||badgeFor.info;
+          return h(AlertRow,{key:i,alert:a,badge:b,isFirst:i===0});
+        })
+      )
+    ):null,
+
+    // Impact estimé — données réellement dérivées
+    (impactPoids||impactBF)?h(Card,null,
+      h(Lbl,null,"TENDANCE RÉCENTE VS TON RYTHME HABITUEL"),
+      h("div",{style:{display:"flex",flexDirection:"column",gap:9,marginTop:2}},
+        impactPoids?h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12}},
+          h("span",{style:{color:G.muted}},"Rythme de variation du poids"),
+          h("span",{style:{fontWeight:800,color:impactPoids.color}},impactPoids.label)
+        ):null,
+        impactBF?h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12}},
+          h("span",{style:{color:G.muted}},"Rythme de variation du Body Fat"),
+          h("span",{style:{fontWeight:800,color:impactBF.color}},impactBF.label)
+        ):null,
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12}},
+          h("span",{style:{color:G.muted}},"Dernier bilan"),
+          h("span",{style:{fontWeight:800,color:daysSinceLast>10?G.orange:G.text}},daysSinceLast+" j"+(daysSinceLast>1?"s":""))
+        )
+      ),
+      h("div",{style:{marginTop:11,paddingTop:10,borderTop:"1px solid "+G.border,fontSize:10,color:G.muted,lineHeight:1.5}},
+        "Comparaison entre ton rythme récent et ta moyenne depuis le premier bilan.")
+    ):null,
+
+    // Historique
+    h("div",{onClick:function(){setTab&&setTab("historique");},
+      style:{background:G.bg2,border:"1px solid "+G.border,borderRadius:14,padding:"13px 15px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginTop:4}},
+      h("div",{style:{fontSize:12.5,fontWeight:700,color:G.text}},"🕐 Historique des bilans"),
+      h("div",{style:{color:G.muted,fontSize:14}},"›")
+    ),
+
+    // Bouton flottant Nouveau bilan (fonction essentielle, toujours accessible)
     h("div",{style:{position:"fixed",left:"50%",transform:"translateX(-50%)",bottom:76,width:"100%",maxWidth:480,padding:"0 16px",zIndex:20}},
       h("button",{onClick:function(){setShowForm(true);},
         style:{width:"100%",background:"linear-gradient(135deg,"+G.gold+","+G.goldDim+")",border:"none",color:"#fff",fontWeight:900,fontSize:15,padding:16,borderRadius:14,cursor:"pointer",boxShadow:"0 10px 28px -8px rgba(47,124,246,.55)"}},
@@ -1044,6 +965,25 @@ function TabAnalyse(props){
   var otherAlerts=alerts.filter(function(a){return a!==priorityAlert;});
   var badgeFor={danger:{emoji:"🔴",label:"PRIORITÉ ÉLEVÉE"},warn:{emoji:"🟠",label:"À SURVEILLER"},good:{emoji:"🟢",label:"PROGRESSION POSITIVE"},info:{emoji:"🔵",label:"INFO"}};
 
+  // Impact estimé — comparaisons de rythme réelles (récent vs moyenne sur toute la période), rien d'inventé
+  function weeklyRate(key,a,b){
+    if(!a||!b||a[key]==null||b[key]==null)return null;
+    var days=Math.max(1,(new Date(b.date)-new Date(a.date))/86400000);
+    return (b[key]-a[key])/(days/7);
+  }
+  function rhythmCompare(key){
+    if(!prev)return null;
+    var recent=weeklyRate(key,prev,last);
+    var overall=weeklyRate(key,first,last);
+    if(recent==null||overall==null)return null;
+    var diff=Math.abs(recent)-Math.abs(overall);
+    if(Math.abs(diff)<0.05*Math.max(1,Math.abs(overall)))return{label:"→ stable",color:G.text};
+    return diff>0?{label:"↑ accéléré",color:G.orange}:{label:"↓ ralenti",color:G.green};
+  }
+  var impactPoids=rhythmCompare("poids");
+  var impactBF=rhythmCompare("bf");
+  var daysSinceLastForImpact=Math.max(0,Math.round((new Date(todayStr())-new Date(last.date))/86400000));
+
   return h("div",{style:{padding:"16px 16px 90px"}},
     h("div",{style:{marginBottom:14}},
       h("div",{style:{fontSize:9,color:G.muted,fontFamily:"monospace",letterSpacing:"0.12em"}},"BODYBUILDING · SUIVI PERSONNALISÉ"),
@@ -1164,6 +1104,27 @@ function TabAnalyse(props){
           return h(AlertRow,{key:i,alert:a,badge:b,isFirst:i===0});
         })
       )
+    ):null,
+
+    // Impact estimé — dérivé de tes vraies données, pas de chiffres inventés
+    (impactPoids||impactBF)?h(Card,null,
+      h(Lbl,null,"TENDANCE RÉCENTE VS TON RYTHME HABITUEL"),
+      h("div",{style:{display:"flex",flexDirection:"column",gap:9,marginTop:2}},
+        impactPoids?h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12}},
+          h("span",{style:{color:G.muted}},"Rythme de variation du poids"),
+          h("span",{style:{fontWeight:800,color:impactPoids.color}},impactPoids.label)
+        ):null,
+        impactBF?h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12}},
+          h("span",{style:{color:G.muted}},"Rythme de variation du Body Fat"),
+          h("span",{style:{fontWeight:800,color:impactBF.color}},impactBF.label)
+        ):null,
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12}},
+          h("span",{style:{color:G.muted}},"Dernier bilan"),
+          h("span",{style:{fontWeight:800,color:daysSinceLastForImpact>10?G.orange:G.text}},daysSinceLastForImpact+" j"+(daysSinceLastForImpact>1?"s":"")+" ago")
+        )
+      ),
+      h("div",{style:{marginTop:11,paddingTop:10,borderTop:"1px solid "+G.border,fontSize:10,color:G.muted,lineHeight:1.5}},
+        "Comparaison entre ton rythme récent et ta moyenne depuis le premier bilan.")
     ):null,
 
     // Accès aux archives (remplace l'ancien "historique des analyses" — s'appuie sur les vraies archives de bilans)
