@@ -649,19 +649,8 @@ function TabBilan(props){
 
   return h("div",{style:{padding:"16px 16px 110px"}},
 
-    // Grand bandeau Tatanka — harmonisé avec Training/Nutrition (même hauteur/coins, logo bleu Progress conservé)
-    h("div",{style:{
-      margin:"-16px -16px 16px -16px",
-      background:"radial-gradient(120% 100% at 50% 0%, "+G.gold+"33, "+G.bg+" 70%)",
-      borderRadius:"0 0 16px 16px",
-      padding:"22px 16px 20px",
-      display:"flex",flexDirection:"column",alignItems:"center",gap:8,
-      borderBottom:"1px solid "+G.border
-    }},
-      h("img",{src:"icon-192.png",style:{width:60,height:60,borderRadius:14,boxShadow:"0 0 0 1px "+G.border}}),
-      h("div",{style:{fontSize:16,fontWeight:900,letterSpacing:"0.02em",color:G.text}},"TATANKA ",h("span",{style:{color:G.gold}},"PROGRESS")),
-      h("div",{style:{fontSize:9,letterSpacing:"0.2em",color:G.muted,fontFamily:"monospace"}},"PERFORM. PROGRESS.")
-    ),
+    // Grand bandeau Tatanka — identique au traitement Training/Nutrition (image réelle)
+    h("img",{src:"hero.jpg",style:{width:"100%",display:"block",borderRadius:"0 0 14px 14px",margin:"-16px -16px 16px -16px",maxWidth:"calc(100% + 32px)"}}),
 
     // Synthèse + Tatanka Score (anneau fusionné)
     h(Card,null,
