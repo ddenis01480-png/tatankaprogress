@@ -635,6 +635,7 @@ function TabBilan(props){
     if(weeklyBFRate!==0&&(bfToGo>0)===(weeklyBFRate>0)){
       var weeksBase=Math.abs(bfToGo/weeklyBFRate);
       if(weeksBase<1){weeksRangeLabel="moins d'1 semaine";}
+      else if(weeksBase>52){weeksRangeLabel="plus d'un an au rythme actuel";}
       else{
         var lowW=Math.max(1,Math.floor(weeksBase*0.75));
         var highW=Math.max(lowW+1,Math.ceil(weeksBase*1.25));
